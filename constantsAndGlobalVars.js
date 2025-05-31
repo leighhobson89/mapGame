@@ -12,6 +12,9 @@ let oldLanguage = "en";
 
 //CONSTANTS
 export let gameState;
+export const SCROLL_SPEED = 10;
+export const SCROLL_EDGE_THRESHOLD = 50;
+
 export const GAME_CANVAS_WIDTH = 1280;
 export const GAME_CANVAS_HEIGHT = 720;
 export const GAME_ASPECT_RATIO = GAME_CANVAS_WIDTH / GAME_CANVAS_HEIGHT;
@@ -23,6 +26,7 @@ export const NUMBER_OF_ENEMY_SQUARES = 10;
 export const INITIAL_SPEED_PLAYER = 4;
 export const INITIAL_SPEED_MOVING_ENEMY = 4;
 export const MAX_ATTEMPTS_TO_DRAW_ENEMIES = 1000;
+export const LEVEL_WIDTH = 3000;
 
 export const playerObject = {
   x: 100,
@@ -34,15 +38,28 @@ export const playerObject = {
 };
 
 //GLOBAL VARIABLES
+let cameraX = 0;
+let backgroundImage = new Image();
+let backgroundLoaded = false;
 
 //FLAGS
 let audioMuted;
 let languageChangedFlag;
 let beginGameState = true;
 let gameInProgress = false;
+let scrollLeft = false;
+let scrollRight = false;
 
 let autoSaveOn = false;
 export let pauseAutoSaveCountdown = true;
+
+export function loadBackgroundImage(callback) {
+  backgroundImage.src = "./assets/world/worldMap.png";
+  backgroundImage.onload = () => {
+    backgroundLoaded = true;
+    callback && callback();
+  };
+}
 
 //GETTER SETTER METHODS
 export function setElements() {
@@ -229,4 +246,40 @@ export function getCanvasHeight() {
 
 export function getCanvasAspectRatio() {
   return GAME_ASPECT_RATIO;
+}
+
+export function getCameraX() {
+  return cameraX;
+}
+
+export function setCameraX(value) {
+  cameraX = value;
+}
+
+export function getScrollLeftFlag() {
+  return scrollLeft;
+}
+
+export function setScrollLeftFlag(value) {
+  scrollLeft = value;
+}
+
+export function getScrollRightFlag() {
+  return scrollRight;
+}
+
+export function setScrollRightFlag(value) {
+  scrollRight = value;
+}
+
+export function getBackgroundImage() {
+  return backgroundImage;
+}
+
+export function getBackgroundLoaded() {
+  return backgroundLoaded;
+}
+
+export function getLevelWidth() {
+  return LEVEL_WIDTH;
 }

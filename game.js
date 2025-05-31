@@ -1,5 +1,15 @@
 import { localize } from "./localization.js";
 import {
+  getLevelWidth,
+  getBackgroundLoaded,
+  getBackgroundImage,
+  loadBackgroundImage,
+  SCROLL_SPEED,
+  LEVEL_WIDTH,
+  getCameraX,
+  setCameraX,
+  getScrollLeftFlag,
+  getScrollRightFlag,
   getCanvasHeight,
   getCanvasWidth,
   getCanvasAspectRatio,
@@ -25,55 +35,7 @@ const enemySquares = [];
 
 //--------------------------------------------------------------------------------------------------------
 
-function initializeEnemySquares() {
-  enemySquares.length = 0;
-  let attempts = 0;
-
-  while (
-    enemySquares.length < getNumberOfEnemySquares() &&
-    attempts < getMaxAttemptsToDrawEnemies()
-  ) {
-    const newSquare = generateRandomSquare();
-
-    if (
-      !enemySquares.some((square) => checkCollision(newSquare, square)) &&
-      !checkCollision(newSquare, playerObject)
-    ) {
-      enemySquares.push(newSquare);
-    }
-
-    attempts++;
-  }
-
-  if (attempts >= getMaxAttemptsToDrawEnemies()) {
-    console.warn(
-      `Could not place all ${getNumberOfEnemySquares()} squares. Only ${
-        enemySquares.length
-      } squares were placed due to overlap constraints.`
-    );
-  }
-}
-
-function initializeMovingEnemy() {
-  let attempts = 0;
-
-  do {
-    movingEnemy = generateRandomCircle();
-    attempts++;
-  } while (
-    (checkCollision(movingEnemy, playerObject) ||
-      enemySquares.some((square) => checkCollision(movingEnemy, square))) &&
-    attempts < getMaxAttemptsToDrawEnemies()
-  );
-
-  if (attempts >= getMaxAttemptsToDrawEnemies()) {
-    console.warn(
-      "Could not place the moving enemy without overlapping the player or any enemy squares."
-    );
-  }
-}
-
-export function startGame() {
+export async function startGame() {
   const ctx = getElements().canvas.getContext("2d");
   const canvas = getElements().canvas;
   const container = getElements().canvasContainer;
@@ -84,200 +46,108 @@ export function startGame() {
   canvas.width = internalWidth;
   canvas.height = internalHeight;
 
-  function updateCanvasSize() {
-    const containerWidth = container.clientWidth;
-    const containerHeight = container.clientHeight;
+  await updateCanvasSize(container, internalWidth, internalHeight, canvas, ctx);
+  window.addEventListener("resize", () => {
+    updateCanvasSize(container, internalWidth, internalHeight, canvas, ctx);
+  });
 
-    const scaleX = containerWidth / internalWidth;
-    const scaleY = containerHeight / internalHeight;
-    const scale = Math.min(scaleX, scaleY);
+  loadBackgroundImage(() => {
+    setCameraX((LEVEL_WIDTH - canvas.width) / 2);
 
-    const visibleWidth = internalWidth * scale;
-    const visibleHeight = internalHeight * scale;
+    gameLoop();
+  });
+}
 
-    canvas.style.width = `${visibleWidth}px`;
-    canvas.style.height = `${visibleHeight}px`;
+async function updateCanvasSize(container, internalWidth, internalHeight, canvas, ctx) {
+  const containerWidth = container.clientWidth;
+  const containerHeight = container.clientHeight;
 
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const scaleX = containerWidth / internalWidth;
+  const scaleY = containerHeight / internalHeight;
+  const scale = Math.min(scaleX, scaleY);
 
-    console.log("Canvas internal size:", canvas.width, "x", canvas.height);
-    console.log(
-      "Canvas visible size:",
-      canvas.offsetWidth,
-      "x",
-      canvas.offsetHeight
-    );
-    console.log("Canvas scale factor:", scale.toFixed(3));
-  }
+  const visibleWidth = internalWidth * scale;
+  const visibleHeight = internalHeight * scale;
 
-  updateCanvasSize();
-  window.addEventListener("resize", updateCanvasSize);
+  canvas.style.width = `${visibleWidth}px`;
+  canvas.style.height = `${visibleHeight}px`;
 
-  initializeEnemySquares();
-  initializeMovingEnemy();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-  gameLoop();
+  console.log("Canvas internal size:", canvas.width, "x", canvas.height);
+  console.log(
+    "Canvas visible size:",
+    canvas.offsetWidth,
+    "x",
+    canvas.offsetHeight
+  );
+  console.log("Canvas scale factor:", scale.toFixed(3));
 }
 
 export function gameLoop() {
-  if (getBeginGameStatus()) {
-    playerObject = getPlayerObject();
-  }
+  updateCamera();
+
   const ctx = getElements().canvas.getContext("2d");
-  if (
-    gameState === getGameVisibleActive() ||
-    gameState === getGameVisiblePaused()
-  ) {
-    ctx.clearRect(
-      0,
-      0,
-      getElements().canvas.width,
-      getElements().canvas.height
-    );
+  const canvas = getElements().canvas;
 
-    if (gameState === getGameVisibleActive()) {
-      moveCircle(playerObject);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawBackground(ctx);
+  requestAnimationFrame(gameLoop);
+}
 
-      moveCircle(movingEnemy);
+export function updateCamera() {
+  const canvasWidth = getElements().canvas.width;
+  const LEVEL_WIDTH = getLevelWidth();
 
-      checkAllCollisions();
-    }
+  console.log("LEVEL_WIDTH:", LEVEL_WIDTH);
+  console.log("canvasWidth:", canvasWidth);
 
-    drawMovingObject(
-      ctx,
-      playerObject.x,
-      playerObject.y,
-      playerObject.width,
-      playerObject.height,
-      "green"
-    );
-    drawMovingObject(
-      ctx,
-      movingEnemy.x,
-      movingEnemy.y,
-      movingEnemy.width,
-      movingEnemy.height,
-      "red"
-    );
+  let newCameraX = getCameraX();
 
-    enemySquares.forEach((square) => {
-      drawEnemySquare(ctx, square.x, square.y, square.width, square.height);
-    });
-
-    requestAnimationFrame(gameLoop);
+  if (getScrollLeftFlag()) {
+    newCameraX -= SCROLL_SPEED;
   }
-}
-
-function moveCircle(circle) {
-  circle.x += circle.dx;
-  circle.y += circle.dy;
-
-  if (circle.x < 0 || circle.x + circle.width > getElements().canvas.width) {
-    circle.dx = -circle.dx;
+  if (getScrollRightFlag()) {
+    newCameraX += SCROLL_SPEED;
   }
-  if (circle.y < 0 || circle.y + circle.height > getElements().canvas.height) {
-    circle.dy = -circle.dy;
-  }
+
+  // Clamp with safe max (non-negative)
+  const maxCameraX = Math.max(0, LEVEL_WIDTH - canvasWidth);
+
+  console.log("maxCameraX:", maxCameraX);
+
+  newCameraX = clamp(newCameraX, 0, maxCameraX);
+
+  setCameraX(newCameraX);
 }
 
-function checkAllCollisions() {
-  enemySquares.forEach((square) => {
-    if (checkCollision(playerObject, square)) {
-      handleCollisionBetweenEnemySquares(playerObject, square);
-    }
-  });
-
-  enemySquares.forEach((square) => {
-    if (checkCollision(movingEnemy, square)) {
-      handleCollisionBetweenEnemySquares(movingEnemy, square);
-    }
-  });
-
-  if (checkCollision(playerObject, movingEnemy)) {
-    handleCollisionBetweenEnemySquares(playerObject, movingEnemy);
-    handleCollisionBetweenEnemySquares(movingEnemy, playerObject);
-  }
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
-function generateRandomSquare() {
-  const size = 20;
-  const x = Math.random() * (getElements().canvas.width - size);
-  const y = Math.random() * (getElements().canvas.height - size);
-  return {
-    x,
-    y,
-    width: size,
-    height: size,
-  };
-}
+function drawBackground(ctx) {
+  if (!getBackgroundLoaded()) return;
 
-function generateRandomCircle() {
-  const size = 50;
-  const x = Math.random() * (getElements().canvas.width - size);
-  const y = Math.random() * (getElements().canvas.height - size);
-  const speed = getInitialSpeedMovingEnemy();
-  const dx = (Math.random() < 0.5 ? -1 : 1) * speed;
-  const dy = (Math.random() < 0.5 ? -1 : 1) * speed;
-  return {
-    x,
-    y,
-    width: size,
-    height: size,
-    dx,
-    dy,
-  };
-}
+  const canvas = getElements().canvas;
+  const canvasHeight = canvas.height;
+  const scale = canvasHeight / getBackgroundImage().height;
+  const scaledCameraX = getCameraX() * scale;
+  const sourceWidth = canvas.width / scale;
 
-function drawMovingObject(ctx, x, y, width, height, color) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(x + width / 2, y + height / 2, width / 2, 0, Math.PI * 2);
-  ctx.closePath();
-  ctx.fill();
-}
-
-function drawEnemySquare(ctx, x, y, width, height) {
-  ctx.fillStyle = "yellow";
-  ctx.fillRect(x, y, width, height);
-}
-
-function checkCollision(rect1, rect2) {
-  return !(
-    rect1.x + rect1.width < rect2.x ||
-    rect1.x > rect2.x + rect2.width ||
-    rect1.y + rect1.height < rect2.y ||
-    rect1.y > rect2.y + rect2.height
-  );
-}
-
-function handleCollisionBetweenEnemySquares(rectangle, square) {
-  const rectCenterX = rectangle.x + rectangle.width / 2;
-  const rectCenterY = rectangle.y + rectangle.height / 2;
-  const squareCenterX = square.x + square.width / 2;
-  const squareCenterY = square.y + square.height / 2;
-
-  const dx = Math.abs(rectCenterX - squareCenterX);
-  const dy = Math.abs(rectCenterY - squareCenterY);
-  const overlapX = rectangle.width / 2 + square.width / 2 - dx;
-  const overlapY = rectangle.height / 2 + square.height / 2 - dy;
-
-  if (overlapX >= overlapY) {
-    if (rectCenterY < squareCenterY) {
-      rectangle.dy = -Math.abs(rectangle.dy);
-    } else {
-      rectangle.dy = Math.abs(rectangle.dy);
-    }
-  } else {
-    if (rectCenterX < squareCenterX) {
-      rectangle.dx = -Math.abs(rectangle.dx);
-    } else {
-      rectangle.dx = Math.abs(rectangle.dx);
-    }
-  }
+  ctx.drawImage(
+    getBackgroundImage(),
+    scaledCameraX / scale,
+    0,
+    sourceWidth,
+    getBackgroundImage().height,
+    0,
+    0,
+    canvas.width,
+    canvasHeight
+  );  
 }
 
 export function setGameState(newState) {
-  console.log("Setting game state to " + newState);
   setGameStateVariable(newState);
 
   switch (newState) {

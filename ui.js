@@ -1,4 +1,7 @@
 import {
+  SCROLL_EDGE_THRESHOLD,
+  setScrollLeftFlag,
+  setScrollRightFlag,
   gameState,
   getLanguageChangedFlag,
   setLanguageChangedFlag,
@@ -27,6 +30,18 @@ import {
 
 document.addEventListener("DOMContentLoaded", async () => {
   setElements();
+
+  const canvas = getElements().canvas;
+
+  canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const canvasWidth = canvas.width;
+
+    setScrollLeftFlag(mouseX < SCROLL_EDGE_THRESHOLD);
+    setScrollRightFlag(mouseX > canvasWidth - SCROLL_EDGE_THRESHOLD);
+  });
+
   getElements().newGameMenuButton.addEventListener("click", () => {
     setBeginGameStatus(true);
     if (!getGameInProgress()) {
