@@ -62,12 +62,24 @@ export async function startGame() {
 
   generateWorldMap(ctx, {
     landArea: 20,
-    numberOfContinents: 3,
+    numberOfContinents: 2,
     numberOfIslands: 18,
-    temperature: 5,
+    temperature: 10,
   });
 
   gameLoop();
+}
+
+export function gameLoop() {
+  updateCamera();
+
+  const ctx = getElements().canvas.getContext("2d");
+  const canvas = getElements().canvas;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawBackground(ctx);
+  drawDebugGrid(ctx);
+  requestAnimationFrame(gameLoop);
 }
 
 async function updateCanvasSize(
@@ -100,18 +112,6 @@ async function updateCanvasSize(
     canvas.offsetHeight
   );
   console.log("Canvas scale factor:", scale.toFixed(3));
-}
-
-export function gameLoop() {
-  updateCamera();
-
-  const ctx = getElements().canvas.getContext("2d");
-  const canvas = getElements().canvas;
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawBackground(ctx);
-  drawDebugGrid(ctx);
-  requestAnimationFrame(gameLoop);
 }
 
 export function updateCamera() {
@@ -535,9 +535,9 @@ function generateWorldMap(
   }
 
   const continentMinX = 10;
-  const continentMaxX = 240; // exclusive
+  const continentMaxX = 240;
   const continentMinY = 4;
-  const continentMaxY = rows - 4; // exclusive
+  const continentMaxY = rows - 4;
 
   for (let i = 0; i < numberOfContinents; i++) {
     const avgSize = Math.floor(continentTilesCount / numberOfContinents);
