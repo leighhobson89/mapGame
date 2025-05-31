@@ -1,5 +1,10 @@
 import { localize } from "./localization.js";
+import { drawDebugGrid } from "./ui.js";
+
 import {
+  getShowGrid,
+  setShowGrid,
+  mainGridObject,
   getScrollUpFlag,
   getScrollDownFlag,
   setZoomLevel,
@@ -26,14 +31,15 @@ import {
   getGameVisibleActive,
   getElements,
   getLanguage,
-  getGameInProgress
+  getGameInProgress,
+  getHoveredCell
 } from "./constantsAndGlobalVars.js";
 
 //--------------------------------------------------------------------------------------------------------
 
 export async function startGame() {
-  const ctx = getElements().canvas.getContext("2d");
   const canvas = getElements().canvas;
+  const ctx = canvas.getContext("2d");
   const container = getElements().canvasContainer;
 
   const internalWidth = getCanvasWidth();
@@ -47,13 +53,15 @@ export async function startGame() {
     updateCanvasSize(container, internalWidth, internalHeight, canvas, ctx);
   });
 
-  loadBackgroundImage(() => {
-    setCameraX((LEVEL_WIDTH - canvas.width) / 2);
-    setCameraY(0);
-    setZoomLevel(0);
+  setCameraX((LEVEL_WIDTH - canvas.width) / 2);
+  setCameraY(0);
+  setZoomLevel(0);
 
-    gameLoop();
-  });
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  generateMap(ctx);
+
+  gameLoop();
 }
 
 async function updateCanvasSize(container, internalWidth, internalHeight, canvas, ctx) {
@@ -88,12 +96,9 @@ export function gameLoop() {
   const ctx = getElements().canvas.getContext("2d");
   const canvas = getElements().canvas;
 
-  // console.log("Camera X:", getCameraX());
-  // console.log("Camera Y:", getCameraY());
-  // console.log("Zoom Level:", getZoomLevel());
-
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawBackground(ctx);
+  drawDebugGrid(ctx);
   requestAnimationFrame(gameLoop);
 }
 
@@ -131,68 +136,149 @@ export function clamp(value, min, max) {
 }
 
 export function getViewWindow(zoomLevel) {
-  const bgImage = getBackgroundImage();
   const maxZoom = 9;
   const zoomFactor = 1 - (zoomLevel / maxZoom) * 0.7;
 
-  const viewWidth = bgImage.width * zoomFactor;
-  const viewHeight = bgImage.height * zoomFactor;
+  const viewWidth = getLevelWidth() * zoomFactor;
+  const viewHeight = getLevelHeight() * zoomFactor;
 
   return { viewWidth, viewHeight };
 }
 
 export function drawBackground(ctx) {
-  if (!getBackgroundLoaded()) return;
-
   const canvas = getElements().canvas;
-  const canvasWidth = canvas.width;
   const canvasHeight = canvas.height;
+  const canvasWidth = canvas.width;
 
-  const bgImage = getBackgroundImage();
-
-  const cameraX = getCameraX();
-  let cameraY = getCameraY();
   const zoomLevel = getZoomLevel();
   const { viewWidth, viewHeight } = getViewWindow(zoomLevel);
-
-  cameraY = Math.min(Math.max(0, cameraY), bgImage.height - viewHeight);
-
   const scale = canvasHeight / viewHeight;
 
-  const wrappedCameraX =
-    ((cameraX % bgImage.width) + bgImage.width) % bgImage.width;
+  let cameraX = getCameraX();
+  let cameraY = getCameraY();
 
-  const rightPartWidth = bgImage.width - wrappedCameraX;
-  const viewWidthFirstPart = Math.min(viewWidth, rightPartWidth);
-  const viewWidthSecondPart = viewWidth - viewWidthFirstPart;
+  // Clamp cameraY within vertical bounds (grid height)
+  const gridHeightPx = mainGridObject.GRID_ROWS * mainGridObject.CELL_HEIGHT;
+  cameraY = Math.min(Math.max(0, cameraY), gridHeightPx - viewHeight);
 
-  const destWidthFirstPart = Math.round(viewWidthFirstPart * scale);
-  const destWidthSecondPart = viewWidthSecondPart * scale;
+  // Wrap cameraX horizontally within grid width
+  const gridWidthPx = mainGridObject.GRID_COLS * mainGridObject.CELL_WIDTH;
+  const wrappedCameraX = ((cameraX % gridWidthPx) + gridWidthPx) % gridWidthPx;
 
-  ctx.drawImage(
-    bgImage,
-    wrappedCameraX,
-    cameraY,
-    viewWidthFirstPart,
-    viewHeight,
-    0,
-    0,
-    destWidthFirstPart,
-    canvasHeight
+  // Clear canvas first
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+  // Calculate visible grid cells range
+  const firstVisibleCol = Math.floor(
+    wrappedCameraX / mainGridObject.CELL_WIDTH
+  );
+  const lastVisibleCol = Math.floor(
+    (wrappedCameraX + viewWidth) / mainGridObject.CELL_WIDTH
+  );
+  const firstVisibleRow = Math.floor(cameraY / mainGridObject.CELL_HEIGHT);
+  const lastVisibleRow = Math.floor(
+    (cameraY + viewHeight) / mainGridObject.CELL_HEIGHT
   );
 
-  if (viewWidthSecondPart > 0) {
-    ctx.drawImage(
-      bgImage,
-      0,
-      cameraY,
-      viewWidthSecondPart,
-      viewHeight,
-      destWidthFirstPart,
-      0,
-      destWidthSecondPart,
-      canvasHeight
+  // Helper to get cell color by terrain type (expand as needed)
+  function getTerrainColor(type) {
+    switch (type) {
+      case "ice":
+        return "#FFFFFF"; // white for ice
+      // add other terrain types here
+      default:
+        return "#000000"; // fallback black
+    }
+  }
+
+  // Draw visible cells (handle wrapping horizontally)
+  for (let row = firstVisibleRow; row <= lastVisibleRow; row++) {
+    // Clamp row within grid bounds
+    if (row < 0 || row >= mainGridObject.GRID_ROWS) continue;
+
+    for (
+      let colOffset = 0;
+      colOffset <= lastVisibleCol - firstVisibleCol;
+      colOffset++
+    ) {
+      // Calculate wrapped column index
+      const col = (firstVisibleCol + colOffset) % mainGridObject.GRID_COLS;
+
+      const cell = mainGridObject.getCell(col, row);
+      if (!cell) continue;
+
+      const color = getTerrainColor(cell.terrainType);
+
+      // Calculate screen position of cell (in pixels)
+      const cellWorldX = col * mainGridObject.CELL_WIDTH;
+      const cellWorldY = row * mainGridObject.CELL_HEIGHT;
+
+      // Translate world coords to screen coords, considering camera and scale
+      let screenX = (cellWorldX - wrappedCameraX) * scale;
+      const screenY = (cellWorldY - cameraY) * scale;
+
+      // If screenX < 0, means wrapping — add gridWidthPx*scale to move into visible range
+      if (screenX < 0) {
+        screenX += gridWidthPx * scale;
+      }
+
+      const cellWidthPx = mainGridObject.CELL_WIDTH * scale;
+      const cellHeightPx = mainGridObject.CELL_HEIGHT * scale;
+
+      // Draw the cell rectangle
+      ctx.fillStyle = color;
+      ctx.fillRect(screenX, screenY, cellWidthPx, cellHeightPx);
+    }
+  }
+
+  // Draw hovered cell highlight if needed
+  if (getHoveredCell() && getShowGrid()) {
+    ctx.fillStyle = "rgba(255, 255, 0, 0.2)";
+
+    const hovered = getHoveredCell();
+
+    // Calculate screen position for hovered cell (consider wrapping)
+    let hoverScreenX =
+      (hovered.x * mainGridObject.CELL_WIDTH - wrappedCameraX) * scale;
+    const hoverScreenY =
+      (hovered.y * mainGridObject.CELL_HEIGHT - cameraY) * scale;
+
+    if (hoverScreenX < 0) {
+      hoverScreenX += gridWidthPx * scale;
+    }
+
+    ctx.fillRect(
+      hoverScreenX,
+      hoverScreenY,
+      mainGridObject.CELL_WIDTH * scale,
+      mainGridObject.CELL_HEIGHT * scale
     );
+  }
+}
+
+
+function paintCell(ctx, cellX, cellY) {
+  const cell = mainGridObject.getCell(cellX, cellY);
+  if (!cell) return;
+
+  const { CELL_WIDTH, CELL_HEIGHT } = mainGridObject;
+
+  const px = cellX * CELL_WIDTH;
+  const py = cellY * CELL_HEIGHT;
+
+  ctx.fillStyle = 'white';
+  ctx.fillRect(px, py, CELL_WIDTH, CELL_HEIGHT);
+}
+
+function generateMap(ctx) {
+  const { GRID_COLS, GRID_ROWS } = mainGridObject;
+
+  for (let y = 0; y < GRID_ROWS; y++) {
+    for (let x = 0; x < GRID_COLS; x++) {
+      paintCell(ctx, x, y);
+
+      mainGridObject.setCellData(x, y, { terrainType: 'ice' });
+    }
   }
 }
 

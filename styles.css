@@ -223,3 +223,15 @@ canvas {
     z-index: 998;
 }
 
+.grid-tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: rgba(0, 0, 0, 0.75);
+    color: white;
+    font-size: 12px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    white-space: pre;
+    display: none;
+    z-index: 9999;
+}

@@ -1,4 +1,6 @@
 import {
+  setHoveredCell,
+  mainGridObject,
   getBackgroundImage,
   setCameraX,
   setCameraY,
@@ -23,6 +25,8 @@ import {
   getLanguageSelected,
   setLanguageSelected,
   setLanguage,
+  getShowGrid,
+  setShowGrid,
 } from "./constantsAndGlobalVars.js";
 import { setGameState, startGame, gameLoop, getViewWindow } from "./game.js";
 import { initLocalization, localize } from "./localization.js";
@@ -38,6 +42,19 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const canvas = getElements().canvas;
 
+  canvas.addEventListener("click", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const cell = mainGridObject.screenToGrid(x, y);
+    if (cell) {
+      console.log(`Clicked on grid cell: (${cell.x}, ${cell.y})`, cell.data);
+    } else {
+      console.log("Click out of bounds");
+    }
+  });
+
   canvas.addEventListener("mousemove", (e) => {
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
@@ -50,8 +67,30 @@ document.addEventListener("DOMContentLoaded", async () => {
     setScrollRightFlag(mouseX > canvasWidth - SCROLL_EDGE_THRESHOLD);
     setScrollUpFlag(mouseY < SCROLL_EDGE_THRESHOLD);
     setScrollDownFlag(mouseY > canvasHeight - SCROLL_EDGE_THRESHOLD);
-  });
-  
+
+    const cell = mainGridObject.screenToGrid(mouseX, mouseY);
+    setHoveredCell(cell);
+
+    const tooltip = document.getElementById("grid-tooltip");
+
+    if (getShowGrid() && cell) {
+      const content =
+        `(${cell.x}, ${cell.y})\n` +
+        Object.entries(cell)
+          .filter(([key]) => !["x", "y"].includes(key))
+          .map(
+            ([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`
+          )
+          .join("\n");
+
+      tooltip.textContent = content;
+      tooltip.style.left = `${e.clientX + 12}px`;
+      tooltip.style.top = `${e.clientY + 12}px`;
+      tooltip.style.display = "block";
+    } else {
+      tooltip.style.display = "none";
+    }
+  });  
 
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -90,8 +129,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     const maxCameraY = bg.height - newView.viewHeight;
     setCameraY(Math.min(Math.max(newCameraY, 0), maxCameraY));
   });
-  
-  
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "g") {
+      setShowGrid(!getShowGrid());
+      console.log("Grid debug view:", getShowGrid() ? "ON" : "OFF");
+    }
+  });  
   
   getElements().newGameMenuButton.addEventListener("click", () => {
     setBeginGameStatus(true);
@@ -269,5 +313,57 @@ function exitFullscreen() {
   } else if (document.msExitFullscreen) {
     document.msExitFullscreen();
   }
+}
+
+export function drawDebugGrid(ctx) {
+  if (!getShowGrid()) return;
+  const canvas = getElements().canvas;
+  const canvasHeight = canvas.height;
+  const canvasWidth = canvas.width;
+
+  const zoom = getZoomLevel();
+  const { viewWidth, viewHeight } = getViewWindow(zoom);
+
+  const scale = canvasHeight / viewHeight;
+  const cameraX = getCameraX();
+  const cameraY = getCameraY();
+
+  const cellW = mainGridObject.CELL_WIDTH;
+  const cellH = mainGridObject.CELL_HEIGHT;
+  const gridW = mainGridObject.GRID_COLS * cellW;
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(0, 255, 0, 0.3)";
+  ctx.lineWidth = 1;
+
+  const leftWorld = cameraX;
+  const rightWorld = cameraX + canvasWidth / scale;
+  const topWorld = cameraY;
+  const bottomWorld = cameraY + canvasHeight / scale;
+
+  const startX = Math.floor(leftWorld / cellW) * cellW;
+  const endX = Math.ceil(rightWorld / cellW) * cellW;
+
+  const startY = Math.floor(topWorld / cellH) * cellH;
+  const endY = Math.ceil(bottomWorld / cellH) * cellH;
+
+  for (let x = startX; x < endX; x += cellW) {
+    const wrappedX = ((x % gridW) + gridW) % gridW;
+    const screenX = (x - cameraX) * scale;
+    ctx.beginPath();
+    ctx.moveTo(screenX, 0);
+    ctx.lineTo(screenX, canvasHeight);
+    ctx.stroke();
+  }
+
+  for (let y = startY; y < endY; y += cellH) {
+    const screenY = (y - cameraY) * scale;
+    ctx.beginPath();
+    ctx.moveTo(0, screenY);
+    ctx.lineTo(canvasWidth, screenY);
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
   

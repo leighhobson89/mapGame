@@ -1,3 +1,5 @@
+import { getViewWindow } from './game.js';
+
 //DEBUG
 export let debugFlag = false;
 export let debugOptionFlag = false;
@@ -29,19 +31,131 @@ export const MAX_ATTEMPTS_TO_DRAW_ENEMIES = 1000;
 export const LEVEL_WIDTH = 2560;
 export const LEVEL_HEIGHT = 720;
 
-export const playerObject = {
-  x: 100,
-  y: 100,
-  width: 50,
-  height: 50,
-  dx: getInitialSpeedPlayer(),
-  dy: getInitialSpeedPlayer(),
-};
+export const mainGridObject = (function () {
+  const CELL_WIDTH = 10;
+  const CELL_HEIGHT = 10;
+  const GRID_COLS = Math.floor(LEVEL_WIDTH / CELL_WIDTH);
+  const GRID_ROWS = Math.floor(LEVEL_HEIGHT / CELL_HEIGHT);
+
+  let grid = [];
+
+  const defaultCell = (x, y) => ({
+    x,
+    y,
+    walkable: true,
+    type: "empty",
+    terrainType: null,
+    metadata: {},
+  });
+
+  for (let y = 0; y < GRID_ROWS; y++) {
+    const row = [];
+    for (let x = 0; x < GRID_COLS; x++) {
+      row.push(defaultCell(x, y));
+    }
+    grid.push(row);
+  }
+
+  return {
+    CELL_WIDTH,
+    CELL_HEIGHT,
+    GRID_COLS,
+    GRID_ROWS,
+
+    getCell(x, y) {
+      if (this.isValid(x, y)) return grid[y][x];
+      return null;
+    },
+
+    setCellData(x, y, data) {
+      const cell = this.getCell(x, y);
+      if (cell) {
+        cell.walkable = data.walkable ?? cell.walkable;
+        cell.type = data.type ?? cell.type;
+        cell.terrainType = data.terrainType ?? cell.terrainType;
+        cell.metadata = data.metadata ?? cell.metadata;
+      }
+    },
+
+    setCellProperty(x, y, key, value) {
+      const cell = this.getCell(x, y);
+      if (cell && key in cell) {
+        cell[key] = value;
+      }
+    },
+
+    getCellProperty(x, y, key) {
+      const cell = this.getCell(x, y);
+      return cell ? cell[key] : null;
+    },
+
+    isValid(x, y) {
+      return (
+        Number.isInteger(x) &&
+        Number.isInteger(y) &&
+        x >= 0 &&
+        y >= 0 &&
+        x < GRID_COLS &&
+        y < GRID_ROWS
+      );
+    },
+
+    getGrid() {
+      return grid;
+    },
+
+    screenToGrid(screenX, screenY) {
+      const zoom = getZoomLevel();
+      const { viewWidth, viewHeight } = getViewWindow(zoom);
+      const canvas = getElements().canvas;
+      const canvasHeight = canvas.height;
+
+      const scale = canvasHeight / viewHeight;
+
+      const cameraX = getCameraX();
+      const cameraY = getCameraY();
+
+      const worldX = cameraX + screenX / scale;
+      const worldY = cameraY + screenY / scale;
+
+      const wrappedX =
+        ((worldX % (GRID_COLS * CELL_WIDTH)) + GRID_COLS * CELL_WIDTH) %
+        (GRID_COLS * CELL_WIDTH);
+
+      const gridX = Math.floor(wrappedX / CELL_WIDTH);
+      const gridY = Math.floor(worldY / CELL_HEIGHT);
+
+      return this.getCell(gridX, gridY);
+    },
+
+    saveGrid() {
+      return JSON.stringify(grid);
+    },
+
+    loadGrid(json) {
+      try {
+        const parsed = JSON.parse(json);
+        if (
+          Array.isArray(parsed) &&
+          parsed.length === GRID_ROWS &&
+          parsed[0].length === GRID_COLS
+        ) {
+          grid = parsed;
+        }
+      } catch (e) {
+        console.error("Failed to load grid:", e);
+      }
+    },
+  };
+})();
+
 
 //GLOBAL VARIABLES
 let cameraX = 0;
 let cameraY = 0;
 let zoomLevel = 0;
+let hoveredCell = null;
+let showGrid = false;
 
 let backgroundImage = new Image();
 let backgroundLoaded = false;
@@ -325,3 +439,20 @@ export function getZoomLevel() {
 export function setZoomLevel(value) {
   zoomLevel = value;
 }
+
+export function getHoveredCell() {
+  return hoveredCell;
+}
+
+export function setHoveredCell(value) {
+  hoveredCell = value;
+}
+
+export function getShowGrid() {
+  return showGrid;
+}
+
+export function setShowGrid(value) {
+  showGrid = value;
+}
+
