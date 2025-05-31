@@ -61,10 +61,10 @@ export async function startGame() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   generateWorldMap(ctx, {
-    landArea: 20,
-    numberOfContinents: 2,
-    numberOfIslands: 18,
-    temperature: 10,
+    landArea: 15,
+    numberOfContinents: 3,
+    numberOfIslands: 15,
+    temperature: 15,
   });
 
   gameLoop();
@@ -372,7 +372,6 @@ function generateWorldMap(
   const landTilesCount = Math.floor((landArea / 100) * totalTiles);
   const waterTilesCount = totalTiles - landTilesCount;
   const iceTilesCount = Math.floor((temperature / 100) * waterTilesCount);
-  const oceanTilesCount = waterTilesCount - iceTilesCount;
 
   const continentTilesCount = Math.floor(landTilesCount * 0.8);
   const islandTilesCount = landTilesCount - continentTilesCount;
@@ -409,20 +408,15 @@ function generateWorldMap(
       return { x, y };
     }
 
-    // 1) Seed the cluster
     clusterTiles.add(keyOf(startX, startY));
 
-    // 2) Initialize the frontier with all 8 neighbors of the seed
     const deltas = [
       [1, 0],
       [-1, 0],
       [0, 1],
       [0, -1],
-      [1, 1],
-      [1, -1],
-      [-1, 1],
-      [-1, -1],
     ];
+
     for (const [dx, dy] of deltas) {
       const nx = startX + dx,
         ny = startY + dy;
@@ -439,39 +433,43 @@ function generateWorldMap(
       }
     }
 
-    // 3) Grow until we reach `size` tiles (biased toward vertical expansion)
-    const verticalBias = 2; // “twice as likely” if this frontier cell touches the cluster vertically
+    const eastWestBias = 3;
+    const peninsulaBias = 2;
+    const distanceBias = 2;
+
+    function distance(x, y) {
+      return Math.sqrt((x - startX) ** 2 + (y - startY) ** 2);
+    }
 
     while (clusterTiles.size < size && frontier.size > 0) {
       const frontierArr = Array.from(frontier);
 
-      // Compute a weight for each frontier cell
-      //  - baseWeight = 1 / (number of adjacent cluster‐neighbors + 1)
-      //  - if it touches vertically (has a cluster tile directly above or below), multiply by verticalBias
       const weights = frontierArr.map((k) => {
         const { x, y } = parseKey(k);
+
         let adjCount = 0;
-        let hasVerticalNeighbor = false;
-        // Check all 8 neighbors for adjacency to cluster
         for (const [dx, dy] of deltas) {
           const nx = x + dx,
             ny = y + dy;
-          if (clusterTiles.has(keyOf(nx, ny))) {
-            adjCount++;
-            // If direct vertical neighbor, mark for bias
-            if (dx === 0 && (dy === 1 || dy === -1)) {
-              hasVerticalNeighbor = true;
-            }
-          }
+          if (clusterTiles.has(keyOf(nx, ny))) adjCount++;
         }
-        // base weight is lower if adjCount is high (to avoid filling in big flat areas too quickly)
+
         let w = 1 / (adjCount + 1);
-        // Apply vertical bias
-        if (hasVerticalNeighbor) w *= verticalBias;
+        if (x !== startX) {
+          w *= eastWestBias;
+        }
+
+        const maxDist = Math.sqrt(cols ** 2 + rows ** 2);
+        const distFactor = distance(x, y) / maxDist;
+        w *= 1 + distFactor * distanceBias;
+
+        if (adjCount <= 2) {
+          w *= peninsulaBias;
+        }
+
         return w;
       });
 
-      // Pick one frontier cell at random according to these weights
       const totalWeight = weights.reduce((acc, w) => acc + w, 0);
       let r = Math.random() * totalWeight;
       let chosenIndex = 0;
@@ -482,11 +480,11 @@ function generateWorldMap(
           break;
         }
       }
+
       const chosenKey = frontierArr[chosenIndex];
       frontier.delete(chosenKey);
       clusterTiles.add(chosenKey);
 
-      // Add new neighbors of chosen cell to frontier
       const { x: cx, y: cy } = parseKey(chosenKey);
       for (const [dx, dy] of deltas) {
         const nx = cx + dx,
@@ -505,7 +503,6 @@ function generateWorldMap(
       }
     }
 
-    // 4) If we still didn’t reach `size` (frontier exhausted), fill via unweighted BFS
     if (clusterTiles.size < size) {
       const fillQueue = Array.from(clusterTiles).map((k) => parseKey(k));
       while (clusterTiles.size < size && fillQueue.length > 0) {
