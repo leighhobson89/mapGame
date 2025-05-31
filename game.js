@@ -61,10 +61,10 @@ export async function startGame() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   generateWorldMap(ctx, {
-    landArea: 30,
-    numberOfContinents: 4,
-    numberOfIslands: 8,
-    temperature: 10,
+    landArea: 20,
+    numberOfContinents: 3,
+    numberOfIslands: 18,
+    temperature: 5,
   });
 
   gameLoop();
@@ -165,6 +165,8 @@ export function drawBackground(ctx) {
   const canvasHeight = canvas.height;
   const canvasWidth = canvas.width;
 
+  ctx.imageSmoothingEnabled = false;
+
   const zoomLevel = getZoomLevel();
   const { viewWidth, viewHeight } = getViewWindow(zoomLevel);
   const scale = canvasHeight / viewHeight;
@@ -219,13 +221,13 @@ export function drawBackground(ctx) {
       const cellWidthPx = mainGridObject.CELL_WIDTH * scale;
       const cellHeightPx = mainGridObject.CELL_HEIGHT * scale;
 
+      const drawX = Math.floor(screenX);
+      const drawY = Math.floor(screenY);
+      const drawW = Math.ceil(cellWidthPx);
+      const drawH = Math.ceil(cellHeightPx);
+
       ctx.fillStyle = color;
-      ctx.fillRect(
-        Math.round(screenX),
-        Math.round(screenY),
-        Math.round(cellWidthPx),
-        Math.round(cellHeightPx)
-      );
+      ctx.fillRect(drawX, drawY, drawW, drawH);
     }
   }
 
@@ -242,39 +244,15 @@ export function drawBackground(ctx) {
       hoverScreenX += gridWidthPx * scale;
     }
 
-    ctx.fillRect(
-      hoverScreenX,
-      hoverScreenY,
-      mainGridObject.CELL_WIDTH * scale,
-      mainGridObject.CELL_HEIGHT * scale
-    );
-  }
-}
+    const hoverW = mainGridObject.CELL_WIDTH * scale;
+    const hoverH = mainGridObject.CELL_HEIGHT * scale;
 
-function paintCell(ctx, cellX, cellY) {
-  const cell = mainGridObject.getCell(cellX, cellY);
-  if (!cell) return;
+    const drawX = Math.floor(hoverScreenX);
+    const drawY = Math.floor(hoverScreenY);
+    const drawW = Math.ceil(hoverW);
+    const drawH = Math.ceil(hoverH);
 
-  const { CELL_WIDTH, CELL_HEIGHT } = mainGridObject;
-
-  const px = cellX * CELL_WIDTH;
-  const py = cellY * CELL_HEIGHT;
-
-  ctx.fillStyle = "white";
-  ctx.fillRect(px, py, CELL_WIDTH, CELL_HEIGHT);
-}
-
-function generateMap(ctx) {
-  const { GRID_COLS, GRID_ROWS } = mainGridObject;
-
-  for (let y = 0; y < GRID_ROWS; y++) {
-    for (let x = 0; x < GRID_COLS; x++) {
-      paintCell(ctx, x, y);
-
-      mainGridObject.setCellData(x, y, {
-        terrainType: "ice",
-      });
-    }
+    ctx.fillRect(drawX, drawY, drawW, drawH);
   }
 }
 
@@ -415,44 +393,140 @@ function generateWorldMap(
     return Math.floor(Math.random() * (max - min)) + min;
   }
 
-  function createCluster(startX, startY, size, occupiedTiles) {
+  function createOrganicCluster(startX, startY, size, occupiedTiles) {
+    const cols = mainGridObject.GRID_COLS;
+    const rows = mainGridObject.GRID_ROWS;
+
     const clusterTiles = new Set();
-    const frontier = [[startX, startY]];
-    clusterTiles.add(`${startX},${startY}`);
+    const frontier = new Set();
 
-    while (clusterTiles.size < size && frontier.length > 0) {
-      const [cx, cy] = frontier.shift();
+    function keyOf(x, y) {
+      return `${x},${y}`;
+    }
 
-      const deltas = [
-        [-1, 0],
-        [1, 0],
-        [0, -1],
-        [0, 1],
-        [-1, -1],
-        [-1, 1],
-        [1, -1],
-        [1, 1],
-      ];
-      for (let i = deltas.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [deltas[i], deltas[j]] = [deltas[j], deltas[i]];
+    function parseKey(key) {
+      const [x, y] = key.split(",").map(Number);
+      return { x, y };
+    }
+
+    // 1) Seed the cluster
+    clusterTiles.add(keyOf(startX, startY));
+
+    // 2) Initialize the frontier with all 8 neighbors of the seed
+    const deltas = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ];
+    for (const [dx, dy] of deltas) {
+      const nx = startX + dx,
+        ny = startY + dy;
+      const k = keyOf(nx, ny);
+      if (
+        nx >= 0 &&
+        nx < cols &&
+        ny >= 0 &&
+        ny < rows &&
+        !occupiedTiles.has(k) &&
+        !clusterTiles.has(k)
+      ) {
+        frontier.add(k);
       }
+    }
 
+    // 3) Grow until we reach `size` tiles (biased toward vertical expansion)
+    const verticalBias = 2; // “twice as likely” if this frontier cell touches the cluster vertically
+
+    while (clusterTiles.size < size && frontier.size > 0) {
+      const frontierArr = Array.from(frontier);
+
+      // Compute a weight for each frontier cell
+      //  - baseWeight = 1 / (number of adjacent cluster‐neighbors + 1)
+      //  - if it touches vertically (has a cluster tile directly above or below), multiply by verticalBias
+      const weights = frontierArr.map((k) => {
+        const { x, y } = parseKey(k);
+        let adjCount = 0;
+        let hasVerticalNeighbor = false;
+        // Check all 8 neighbors for adjacency to cluster
+        for (const [dx, dy] of deltas) {
+          const nx = x + dx,
+            ny = y + dy;
+          if (clusterTiles.has(keyOf(nx, ny))) {
+            adjCount++;
+            // If direct vertical neighbor, mark for bias
+            if (dx === 0 && (dy === 1 || dy === -1)) {
+              hasVerticalNeighbor = true;
+            }
+          }
+        }
+        // base weight is lower if adjCount is high (to avoid filling in big flat areas too quickly)
+        let w = 1 / (adjCount + 1);
+        // Apply vertical bias
+        if (hasVerticalNeighbor) w *= verticalBias;
+        return w;
+      });
+
+      // Pick one frontier cell at random according to these weights
+      const totalWeight = weights.reduce((acc, w) => acc + w, 0);
+      let r = Math.random() * totalWeight;
+      let chosenIndex = 0;
+      for (let i = 0; i < weights.length; i++) {
+        r -= weights[i];
+        if (r <= 0) {
+          chosenIndex = i;
+          break;
+        }
+      }
+      const chosenKey = frontierArr[chosenIndex];
+      frontier.delete(chosenKey);
+      clusterTiles.add(chosenKey);
+
+      // Add new neighbors of chosen cell to frontier
+      const { x: cx, y: cy } = parseKey(chosenKey);
       for (const [dx, dy] of deltas) {
-        if (clusterTiles.size >= size) break;
-        const nx = cx + dx;
-        const ny = cy + dy;
-        const key = `${nx},${ny}`;
+        const nx = cx + dx,
+          ny = cy + dy;
+        const k2 = keyOf(nx, ny);
         if (
           nx >= 0 &&
           nx < cols &&
           ny >= 0 &&
           ny < rows &&
-          !clusterTiles.has(key) &&
-          !occupiedTiles.has(key)
+          !occupiedTiles.has(k2) &&
+          !clusterTiles.has(k2)
         ) {
-          clusterTiles.add(key);
-          frontier.push([nx, ny]);
+          frontier.add(k2);
+        }
+      }
+    }
+
+    // 4) If we still didn’t reach `size` (frontier exhausted), fill via unweighted BFS
+    if (clusterTiles.size < size) {
+      const fillQueue = Array.from(clusterTiles).map((k) => parseKey(k));
+      while (clusterTiles.size < size && fillQueue.length > 0) {
+        const { x: cx, y: cy } = fillQueue.shift();
+        for (const [dx, dy] of deltas) {
+          if (clusterTiles.size >= size) break;
+          const nx = cx + dx,
+            ny = cy + dy;
+          const k2 = keyOf(nx, ny);
+          if (
+            nx < 0 ||
+            nx >= cols ||
+            ny < 0 ||
+            ny >= rows ||
+            occupiedTiles.has(k2) ||
+            clusterTiles.has(k2)
+          ) {
+            continue;
+          }
+          clusterTiles.add(k2);
+          fillQueue.push({ x: nx, y: ny });
         }
       }
     }
@@ -460,17 +534,22 @@ function generateWorldMap(
     return clusterTiles;
   }
 
+  const continentMinX = 10;
+  const continentMaxX = 240; // exclusive
+  const continentMinY = 4;
+  const continentMaxY = rows - 4; // exclusive
+
   for (let i = 0; i < numberOfContinents; i++) {
     const avgSize = Math.floor(continentTilesCount / numberOfContinents);
     let attempts = 0;
     let cluster = null;
 
     while (attempts < 50) {
-      const startX = randInt(0, cols);
-      const startY = randInt(0, rows);
+      const startX = randInt(continentMinX, continentMaxX);
+      const startY = randInt(continentMinY, continentMaxY);
 
       if (!occupiedTiles.has(`${startX},${startY}`)) {
-        cluster = createCluster(startX, startY, avgSize, occupiedTiles);
+        cluster = createOrganicCluster(startX, startY, avgSize, occupiedTiles);
         if (cluster.size === avgSize) break;
       }
       attempts++;
@@ -488,6 +567,7 @@ function generateWorldMap(
     }
   }
 
+
   for (let i = 0; i < numberOfIslands; i++) {
     const avgSize = Math.floor(islandTilesCount / numberOfIslands);
     let attempts = 0;
@@ -498,7 +578,7 @@ function generateWorldMap(
       const startY = randInt(0, rows);
 
       if (!occupiedTiles.has(`${startX},${startY}`)) {
-        cluster = createCluster(startX, startY, avgSize, occupiedTiles);
+        cluster = createOrganicCluster(startX, startY, avgSize, occupiedTiles);
         if (cluster.size === avgSize) break;
       }
       attempts++;
@@ -537,18 +617,64 @@ function generateWorldMap(
   }
 
   relocateMidRowIceTilesToPoles(temperature);
+  generateTundra(temperature);
 
+  const neighborDeltas = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [1, -1],
+    [-1, 1],
+    [-1, -1],
+  ];
+
+  function getModalTerrain(x, y) {
+    const counts = {};
+    let maxCount = 0;
+    let modal = null;
+    for (const [dx, dy] of neighborDeltas) {
+      const nx = x + dx,
+        ny = y + dy;
+      if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+      const t = mainGridObject.getCell(nx, ny).terrainType;
+      if (!t || t === "ocean") continue;
+      counts[t] = (counts[t] || 0) + 1;
+      if (counts[t] > maxCount) {
+        maxCount = counts[t];
+        modal = t;
+      }
+    }
+    return modal;
+  }
+
+  const toChange = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
-      const terrainType = mainGridObject.getCell(x, y).terrainType || "ocean";
-      ctx.fillStyle = getTerrainColor(terrainType);
-      ctx.fillRect(
-        x * mainGridObject.CELL_WIDTH,
-        y * mainGridObject.CELL_HEIGHT,
-        mainGridObject.CELL_WIDTH,
-        mainGridObject.CELL_HEIGHT
-      );
+      const cell = mainGridObject.getCell(x, y);
+      if (!cell || cell.terrainType !== "ocean") continue;
+      let countNonOcean = 0;
+      for (const [dx, dy] of neighborDeltas) {
+        const nx = x + dx,
+          ny = y + dy;
+        if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+        const t = mainGridObject.getCell(nx, ny).terrainType;
+        if (t && t !== "ocean") {
+          countNonOcean++;
+        }
+      }
+      if (countNonOcean > 5) {
+        const modal = getModalTerrain(x, y);
+        if (modal) {
+          toChange.push({ x, y, terrain: modal });
+        }
+      }
     }
+  }
+
+  for (const { x, y, terrain } of toChange) {
+    mainGridObject.setCellData(x, y, { terrainType: terrain });
   }
 }
 
@@ -560,6 +686,8 @@ function getTerrainColor(type) {
       return "#7CFC00";
     case "ocean":
       return "#1E90FF";
+    case "tundra":
+      return "#8B7D6B";
     default:
       return "#000000";
   }
@@ -682,3 +810,72 @@ function relocateMidRowIceTilesToPoles(temperature) {
     }
   }
 }
+
+function generateTundra(temperature) {
+  const cols = mainGridObject.GRID_COLS;
+  const rows = mainGridObject.GRID_ROWS;
+  const polarRowCount = Math.max(0, 15 - Math.floor((30 - temperature) / 4));
+
+  const probs = [0.9, 0.8, 0.7, 0.6, 0.5];
+
+  function maybeTundra(chance) {
+    return Math.random() < chance;
+  }
+
+  for (let y = 0; y < polarRowCount; y++) {
+    if (y >= rows) break;
+    for (let x = 0; x < cols; x++) {
+      const cell = mainGridObject.getCell(x, y);
+      if (!cell) continue;
+      const terrain = cell.terrainType;
+      if (terrain !== "ocean" && terrain !== "ice" && terrain !== "tundra") {
+        mainGridObject.setCellData(x, y, { terrainType: "tundra" });
+      }
+    }
+  }
+
+  for (let y = rows - polarRowCount; y < rows; y++) {
+    if (y < 0) continue;
+    for (let x = 0; x < cols; x++) {
+      const cell = mainGridObject.getCell(x, y);
+      if (!cell) continue;
+      const terrain = cell.terrainType;
+      if (terrain !== "ocean" && terrain !== "ice" && terrain !== "tundra") {
+        mainGridObject.setCellData(x, y, { terrainType: "tundra" });
+      }
+    }
+  }
+
+  for (let i = 0; i < 5; i++) {
+    const y = polarRowCount + i;
+    if (y >= rows) break;
+    const chance = probs[i];
+    for (let x = 0; x < cols; x++) {
+      const cell = mainGridObject.getCell(x, y);
+      if (!cell) continue;
+      const terrain = cell.terrainType;
+      if (terrain !== "ocean" && terrain !== "ice" && terrain !== "tundra") {
+        if (maybeTundra(chance)) {
+          mainGridObject.setCellData(x, y, { terrainType: "tundra" });
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < 5; i++) {
+    const y = rows - polarRowCount - 1 - i;
+    if (y < 0) break;
+    const chance = probs[i];
+    for (let x = 0; x < cols; x++) {
+      const cell = mainGridObject.getCell(x, y);
+      if (!cell) continue;
+      const terrain = cell.terrainType;
+      if (terrain !== "ocean" && terrain !== "ice" && terrain !== "tundra") {
+        if (maybeTundra(chance)) {
+          mainGridObject.setCellData(x, y, { terrainType: "tundra" });
+        }
+      }
+    }
+  }
+}
+
