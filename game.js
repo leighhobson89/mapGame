@@ -96,12 +96,6 @@ export function gameLoop() {
 }
 
 export function updateCamera() {
-  const canvasWidth = getElements().canvas.width;
-  const LEVEL_WIDTH = getLevelWidth();
-
-  console.log("LEVEL_WIDTH:", LEVEL_WIDTH);
-  console.log("canvasWidth:", canvasWidth);
-
   let newCameraX = getCameraX();
 
   if (getScrollLeftFlag()) {
@@ -111,18 +105,10 @@ export function updateCamera() {
     newCameraX += SCROLL_SPEED;
   }
 
-  // Clamp with safe max (non-negative)
-  const maxCameraX = Math.max(0, LEVEL_WIDTH - canvasWidth);
-
-  console.log("maxCameraX:", maxCameraX);
-
-  newCameraX = clamp(newCameraX, 0, maxCameraX);
+  const LEVEL_WIDTH = getLevelWidth();
+  newCameraX = ((newCameraX % LEVEL_WIDTH) + LEVEL_WIDTH) % LEVEL_WIDTH;
 
   setCameraX(newCameraX);
-}
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
 }
 
 function drawBackground(ctx) {
@@ -130,21 +116,44 @@ function drawBackground(ctx) {
 
   const canvas = getElements().canvas;
   const canvasHeight = canvas.height;
-  const scale = canvasHeight / getBackgroundImage().height;
-  const scaledCameraX = getCameraX() * scale;
-  const sourceWidth = canvas.width / scale;
+
+  const bgImage = getBackgroundImage();
+  const LEVEL_WIDTH = getLevelWidth();
+
+  // Scale factor to fit the image height to canvas height
+  const scale = canvasHeight / bgImage.height;
+
+  const scaledWidth = bgImage.width * scale;
+  const scaledHeight = bgImage.height * scale;
+
+  const cameraX = getCameraX();
+  const scaledCameraX = cameraX * scale;
+
+  const drawX = scaledCameraX % scaledWidth;
 
   ctx.drawImage(
-    getBackgroundImage(),
-    scaledCameraX / scale,
+    bgImage,
+    drawX / scale,
     0,
-    sourceWidth,
-    getBackgroundImage().height,
+    bgImage.width - drawX / scale,
+    bgImage.height,
     0,
     0,
-    canvas.width,
-    canvasHeight
-  );  
+    scaledWidth - drawX,
+    scaledHeight
+  );
+
+  ctx.drawImage(
+    bgImage,
+    0,
+    0,
+    drawX / scale,
+    bgImage.height,
+    scaledWidth - drawX,
+    0,
+    drawX,
+    scaledHeight
+  );
 }
 
 export function setGameState(newState) {
