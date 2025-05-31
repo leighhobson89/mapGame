@@ -26,7 +26,8 @@ export const NUMBER_OF_ENEMY_SQUARES = 10;
 export const INITIAL_SPEED_PLAYER = 4;
 export const INITIAL_SPEED_MOVING_ENEMY = 4;
 export const MAX_ATTEMPTS_TO_DRAW_ENEMIES = 1000;
-export const LEVEL_WIDTH = 3000;
+export const LEVEL_WIDTH = 2560;
+export const LEVEL_HEIGHT = 720;
 
 export const playerObject = {
   x: 100,
@@ -39,6 +40,9 @@ export const playerObject = {
 
 //GLOBAL VARIABLES
 let cameraX = 0;
+let cameraY = 0;
+let zoomLevel = 0;
+
 let backgroundImage = new Image();
 let backgroundLoaded = false;
 
@@ -49,6 +53,8 @@ let beginGameState = true;
 let gameInProgress = false;
 let scrollLeft = false;
 let scrollRight = false;
+let scrollUp = false;
+let scrollDown = false;
 
 let autoSaveOn = false;
 export let pauseAutoSaveCountdown = true;
@@ -252,8 +258,32 @@ export function getCameraX() {
   return cameraX;
 }
 
+export function getCameraY() {
+  return cameraY;
+}
+
 export function setCameraX(value) {
   cameraX = value;
+}
+
+export function setCameraY(value) {
+  cameraY = value;
+}
+
+export function getScrollUpFlag() {
+  return scrollUp;
+}
+
+export function getScrollDownFlag() {
+  return scrollDown;
+}
+
+export function setScrollUpFlag(val) {
+  scrollUp = val;
+}
+
+export function setScrollDownFlag(val) {
+  scrollDown = val;
 }
 
 export function getScrollLeftFlag() {
@@ -282,4 +312,16 @@ export function getBackgroundLoaded() {
 
 export function getLevelWidth() {
   return LEVEL_WIDTH;
+}
+
+export function getLevelHeight() {
+  return LEVEL_HEIGHT;
+}
+
+export function getZoomLevel() {
+  return zoomLevel;
+}
+
+export function setZoomLevel(value) {
+  zoomLevel = value;
 }

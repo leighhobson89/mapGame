@@ -1,25 +1,30 @@
 import {
+  getBackgroundImage,
+  setCameraX,
+  setCameraY,
+  getCameraX,
+  getCameraY,
+  setZoomLevel,
+  getZoomLevel,
   SCROLL_EDGE_THRESHOLD,
+  setScrollUpFlag,
+  setScrollDownFlag,
   setScrollLeftFlag,
   setScrollRightFlag,
   gameState,
-  getLanguageChangedFlag,
-  setLanguageChangedFlag,
   getLanguage,
   setElements,
   getElements,
   setBeginGameStatus,
   getGameInProgress,
   setGameInProgress,
-  getGameVisiblePaused,
-  getBeginGameStatus,
   getGameVisibleActive,
   getMenuState,
   getLanguageSelected,
   setLanguageSelected,
   setLanguage,
 } from "./constantsAndGlobalVars.js";
-import { setGameState, startGame, gameLoop } from "./game.js";
+import { setGameState, startGame, gameLoop, getViewWindow } from "./game.js";
 import { initLocalization, localize } from "./localization.js";
 import {
   loadGameOption,
@@ -36,12 +41,58 @@ document.addEventListener("DOMContentLoaded", async () => {
   canvas.addEventListener("mousemove", (e) => {
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
     const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
 
     setScrollLeftFlag(mouseX < SCROLL_EDGE_THRESHOLD);
     setScrollRightFlag(mouseX > canvasWidth - SCROLL_EDGE_THRESHOLD);
+    setScrollUpFlag(mouseY < SCROLL_EDGE_THRESHOLD);
+    setScrollDownFlag(mouseY > canvasHeight - SCROLL_EDGE_THRESHOLD);
   });
+  
 
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX_css = e.clientX - rect.left;
+    const mouseY_css = e.clientY - rect.top;
+
+    const canvasHeight = canvas.height;
+    const scale = canvasHeight / getViewWindow(getZoomLevel()).viewHeight;
+
+    const mouseX = mouseX_css;
+    const mouseY = mouseY_css;
+
+    const oldZoom = getZoomLevel();
+    const zoomDelta = e.deltaY < 0 ? 1 : -1;
+    const newZoom = Math.min(Math.max(0, oldZoom + zoomDelta), 9);
+    if (newZoom === oldZoom) return;
+
+    const oldView = getViewWindow(oldZoom);
+    const newView = getViewWindow(newZoom);
+
+    const oldScale = canvasHeight / oldView.viewHeight;
+    const newScale = canvasHeight / newView.viewHeight;
+
+    const worldX = getCameraX() + mouseX / oldScale;
+    const worldY = getCameraY() + mouseY / oldScale;
+
+    const newCameraX = worldX - mouseX / newScale;
+    const newCameraY = worldY - mouseY / newScale;
+
+    setZoomLevel(newZoom);
+    setCameraX(newCameraX);
+
+    const bg = getBackgroundImage();
+    const maxCameraY = bg.height - newView.viewHeight;
+    setCameraY(Math.min(Math.max(newCameraY, 0), maxCameraY));
+  });
+  
+  
+  
   getElements().newGameMenuButton.addEventListener("click", () => {
     setBeginGameStatus(true);
     if (!getGameInProgress()) {

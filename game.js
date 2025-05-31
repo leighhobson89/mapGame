@@ -1,37 +1,33 @@
 import { localize } from "./localization.js";
 import {
+  getScrollUpFlag,
+  getScrollDownFlag,
+  setZoomLevel,
   getLevelWidth,
+  getLevelHeight,
   getBackgroundLoaded,
   getBackgroundImage,
   loadBackgroundImage,
   SCROLL_SPEED,
   LEVEL_WIDTH,
   getCameraX,
+  getCameraY,
   setCameraX,
+  setCameraY,
   getScrollLeftFlag,
   getScrollRightFlag,
+  getZoomLevel,
   getCanvasHeight,
   getCanvasWidth,
-  getCanvasAspectRatio,
-  getInitialSpeedMovingEnemy,
   setGameStateVariable,
-  getBeginGameStatus,
-  getMaxAttemptsToDrawEnemies,
   getPlayerObject,
   getMenuState,
   getGameVisiblePaused,
   getGameVisibleActive,
-  getNumberOfEnemySquares,
   getElements,
   getLanguage,
-  getGameInProgress,
-  gameState,
+  getGameInProgress
 } from "./constantsAndGlobalVars.js";
-
-let playerObject = getPlayerObject();
-let movingEnemy = {};
-
-const enemySquares = [];
 
 //--------------------------------------------------------------------------------------------------------
 
@@ -53,6 +49,8 @@ export async function startGame() {
 
   loadBackgroundImage(() => {
     setCameraX((LEVEL_WIDTH - canvas.width) / 2);
+    setCameraY(0);
+    setZoomLevel(0);
 
     gameLoop();
   });
@@ -90,6 +88,10 @@ export function gameLoop() {
   const ctx = getElements().canvas.getContext("2d");
   const canvas = getElements().canvas;
 
+  // console.log("Camera X:", getCameraX());
+  // console.log("Camera Y:", getCameraY());
+  // console.log("Zoom Level:", getZoomLevel());
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawBackground(ctx);
   requestAnimationFrame(gameLoop);
@@ -97,6 +99,7 @@ export function gameLoop() {
 
 export function updateCamera() {
   let newCameraX = getCameraX();
+  let newCameraY = getCameraY();
 
   if (getScrollLeftFlag()) {
     newCameraX -= SCROLL_SPEED;
@@ -104,56 +107,93 @@ export function updateCamera() {
   if (getScrollRightFlag()) {
     newCameraX += SCROLL_SPEED;
   }
+  if (getScrollUpFlag()) {
+    newCameraY -= SCROLL_SPEED;
+  }
+  if (getScrollDownFlag()) {
+    newCameraY += SCROLL_SPEED;
+  }
 
   const LEVEL_WIDTH = getLevelWidth();
   newCameraX = ((newCameraX % LEVEL_WIDTH) + LEVEL_WIDTH) % LEVEL_WIDTH;
 
+  const zoomLevel = getZoomLevel();
+  const { viewHeight } = getViewWindow(zoomLevel);
+  const LEVEL_HEIGHT = getLevelHeight();
+  newCameraY = clamp(newCameraY, 0, LEVEL_HEIGHT - viewHeight);
+
   setCameraX(newCameraX);
+  setCameraY(newCameraY);
 }
 
-function drawBackground(ctx) {
+export function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+export function getViewWindow(zoomLevel) {
+  const bgImage = getBackgroundImage();
+  const maxZoom = 9;
+  const zoomFactor = 1 - (zoomLevel / maxZoom) * 0.7;
+
+  const viewWidth = bgImage.width * zoomFactor;
+  const viewHeight = bgImage.height * zoomFactor;
+
+  return { viewWidth, viewHeight };
+}
+
+export function drawBackground(ctx) {
   if (!getBackgroundLoaded()) return;
 
   const canvas = getElements().canvas;
+  const canvasWidth = canvas.width;
   const canvasHeight = canvas.height;
 
   const bgImage = getBackgroundImage();
-  const LEVEL_WIDTH = getLevelWidth();
-
-  // Scale factor to fit the image height to canvas height
-  const scale = canvasHeight / bgImage.height;
-
-  const scaledWidth = bgImage.width * scale;
-  const scaledHeight = bgImage.height * scale;
 
   const cameraX = getCameraX();
-  const scaledCameraX = cameraX * scale;
+  let cameraY = getCameraY();
+  const zoomLevel = getZoomLevel();
+  const { viewWidth, viewHeight } = getViewWindow(zoomLevel);
 
-  const drawX = scaledCameraX % scaledWidth;
+  cameraY = Math.min(Math.max(0, cameraY), bgImage.height - viewHeight);
+
+  const scale = canvasHeight / viewHeight;
+
+  const wrappedCameraX =
+    ((cameraX % bgImage.width) + bgImage.width) % bgImage.width;
+
+  const rightPartWidth = bgImage.width - wrappedCameraX;
+  const viewWidthFirstPart = Math.min(viewWidth, rightPartWidth);
+  const viewWidthSecondPart = viewWidth - viewWidthFirstPart;
+
+  const destWidthFirstPart = Math.round(viewWidthFirstPart * scale);
+  const destWidthSecondPart = viewWidthSecondPart * scale;
 
   ctx.drawImage(
     bgImage,
-    drawX / scale,
+    wrappedCameraX,
+    cameraY,
+    viewWidthFirstPart,
+    viewHeight,
     0,
-    bgImage.width - drawX / scale,
-    bgImage.height,
     0,
-    0,
-    scaledWidth - drawX,
-    scaledHeight
+    destWidthFirstPart,
+    canvasHeight
   );
 
-  ctx.drawImage(
-    bgImage,
-    0,
-    0,
-    drawX / scale,
-    bgImage.height,
-    scaledWidth - drawX,
-    0,
-    drawX,
-    scaledHeight
-  );
+  if (viewWidthSecondPart > 0) {
+    ctx.drawImage(
+      bgImage,
+      0,
+      cameraY,
+      viewWidthSecondPart,
+      viewHeight,
+      destWidthFirstPart,
+      0,
+      destWidthSecondPart,
+      canvasHeight
+    );
+  }
 }
 
 export function setGameState(newState) {
