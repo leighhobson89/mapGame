@@ -2,6 +2,7 @@ import { localize } from "./localization.js";
 import { drawDebugGrid } from "./ui.js";
 
 import {
+  getTerrainTypes,
   getShowGrid,
   setShowGrid,
   mainGridObject,
@@ -32,7 +33,7 @@ import {
   getElements,
   getLanguage,
   getGameInProgress,
-  getHoveredCell
+  getHoveredCell,
 } from "./constantsAndGlobalVars.js";
 
 //--------------------------------------------------------------------------------------------------------
@@ -59,12 +60,23 @@ export async function startGame() {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  generateMap(ctx);
+  generateWorldMap(ctx, {
+    landArea: 30,
+    numberOfContinents: 4,
+    numberOfIslands: 8,
+    temperature: 10,
+  });
 
   gameLoop();
 }
 
-async function updateCanvasSize(container, internalWidth, internalHeight, canvas, ctx) {
+async function updateCanvasSize(
+  container,
+  internalWidth,
+  internalHeight,
+  canvas,
+  ctx
+) {
   const containerWidth = container.clientWidth;
   const containerHeight = container.clientHeight;
 
@@ -142,7 +154,10 @@ export function getViewWindow(zoomLevel) {
   const viewWidth = getLevelWidth() * zoomFactor;
   const viewHeight = getLevelHeight() * zoomFactor;
 
-  return { viewWidth, viewHeight };
+  return {
+    viewWidth,
+    viewHeight,
+  };
 }
 
 export function drawBackground(ctx) {
@@ -157,18 +172,14 @@ export function drawBackground(ctx) {
   let cameraX = getCameraX();
   let cameraY = getCameraY();
 
-  // Clamp cameraY within vertical bounds (grid height)
   const gridHeightPx = mainGridObject.GRID_ROWS * mainGridObject.CELL_HEIGHT;
   cameraY = Math.min(Math.max(0, cameraY), gridHeightPx - viewHeight);
 
-  // Wrap cameraX horizontally within grid width
   const gridWidthPx = mainGridObject.GRID_COLS * mainGridObject.CELL_WIDTH;
   const wrappedCameraX = ((cameraX % gridWidthPx) + gridWidthPx) % gridWidthPx;
 
-  // Clear canvas first
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-  // Calculate visible grid cells range
   const firstVisibleCol = Math.floor(
     wrappedCameraX / mainGridObject.CELL_WIDTH
   );
@@ -180,20 +191,7 @@ export function drawBackground(ctx) {
     (cameraY + viewHeight) / mainGridObject.CELL_HEIGHT
   );
 
-  // Helper to get cell color by terrain type (expand as needed)
-  function getTerrainColor(type) {
-    switch (type) {
-      case "ice":
-        return "#FFFFFF"; // white for ice
-      // add other terrain types here
-      default:
-        return "#000000"; // fallback black
-    }
-  }
-
-  // Draw visible cells (handle wrapping horizontally)
   for (let row = firstVisibleRow; row <= lastVisibleRow; row++) {
-    // Clamp row within grid bounds
     if (row < 0 || row >= mainGridObject.GRID_ROWS) continue;
 
     for (
@@ -201,7 +199,6 @@ export function drawBackground(ctx) {
       colOffset <= lastVisibleCol - firstVisibleCol;
       colOffset++
     ) {
-      // Calculate wrapped column index
       const col = (firstVisibleCol + colOffset) % mainGridObject.GRID_COLS;
 
       const cell = mainGridObject.getCell(col, row);
@@ -209,15 +206,12 @@ export function drawBackground(ctx) {
 
       const color = getTerrainColor(cell.terrainType);
 
-      // Calculate screen position of cell (in pixels)
       const cellWorldX = col * mainGridObject.CELL_WIDTH;
       const cellWorldY = row * mainGridObject.CELL_HEIGHT;
 
-      // Translate world coords to screen coords, considering camera and scale
       let screenX = (cellWorldX - wrappedCameraX) * scale;
       const screenY = (cellWorldY - cameraY) * scale;
 
-      // If screenX < 0, means wrapping — add gridWidthPx*scale to move into visible range
       if (screenX < 0) {
         screenX += gridWidthPx * scale;
       }
@@ -225,19 +219,20 @@ export function drawBackground(ctx) {
       const cellWidthPx = mainGridObject.CELL_WIDTH * scale;
       const cellHeightPx = mainGridObject.CELL_HEIGHT * scale;
 
-      // Draw the cell rectangle
       ctx.fillStyle = color;
-      ctx.fillRect(screenX, screenY, cellWidthPx, cellHeightPx);
+      ctx.fillRect(
+        Math.round(screenX),
+        Math.round(screenY),
+        Math.round(cellWidthPx),
+        Math.round(cellHeightPx)
+      );
     }
   }
 
-  // Draw hovered cell highlight if needed
   if (getHoveredCell() && getShowGrid()) {
     ctx.fillStyle = "rgba(255, 255, 0, 0.2)";
 
     const hovered = getHoveredCell();
-
-    // Calculate screen position for hovered cell (consider wrapping)
     let hoverScreenX =
       (hovered.x * mainGridObject.CELL_WIDTH - wrappedCameraX) * scale;
     const hoverScreenY =
@@ -256,7 +251,6 @@ export function drawBackground(ctx) {
   }
 }
 
-
 function paintCell(ctx, cellX, cellY) {
   const cell = mainGridObject.getCell(cellX, cellY);
   if (!cell) return;
@@ -266,7 +260,7 @@ function paintCell(ctx, cellX, cellY) {
   const px = cellX * CELL_WIDTH;
   const py = cellY * CELL_HEIGHT;
 
-  ctx.fillStyle = 'white';
+  ctx.fillStyle = "white";
   ctx.fillRect(px, py, CELL_WIDTH, CELL_HEIGHT);
 }
 
@@ -277,7 +271,9 @@ function generateMap(ctx) {
     for (let x = 0; x < GRID_COLS; x++) {
       paintCell(ctx, x, y);
 
-      mainGridObject.setCellData(x, y, { terrainType: 'ice' });
+      mainGridObject.setCellData(x, y, {
+        terrainType: "ice",
+      });
     }
   }
 }
@@ -371,5 +367,318 @@ export function setGameState(newState) {
         getLanguage()
       )}`;
       break;
+  }
+}
+
+function isFarEnough(x, y, occupiedTiles, minDistance) {
+  for (let dx = -minDistance; dx <= minDistance; dx++) {
+    for (let dy = -minDistance; dy <= minDistance; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+      if (occupiedTiles.has(`${nx},${ny}`)) return false;
+    }
+  }
+  return true;
+}
+
+function generateWorldMap(
+  ctx,
+  { landArea, numberOfContinents, numberOfIslands, temperature } = {}
+) {
+  const cols = mainGridObject.GRID_COLS;
+  const rows = mainGridObject.GRID_ROWS;
+  const totalTiles = cols * rows;
+
+  const landTilesCount = Math.floor((landArea / 100) * totalTiles);
+  const waterTilesCount = totalTiles - landTilesCount;
+  const iceTilesCount = Math.floor((temperature / 100) * waterTilesCount);
+  const oceanTilesCount = waterTilesCount - iceTilesCount;
+
+  const continentTilesCount = Math.floor(landTilesCount * 0.8);
+  const islandTilesCount = landTilesCount - continentTilesCount;
+
+  const landSet = new Set();
+  const occupiedTiles = new Set();
+
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      mainGridObject.setCellData(x, y, {
+        terrainType: "ocean",
+      });
+    }
+  }
+
+  function randInt(min, max) {
+    return Math.floor(Math.random() * (max - min)) + min;
+  }
+
+  function createCluster(startX, startY, size, occupiedTiles) {
+    const clusterTiles = new Set();
+    const frontier = [[startX, startY]];
+    clusterTiles.add(`${startX},${startY}`);
+
+    while (clusterTiles.size < size && frontier.length > 0) {
+      const [cx, cy] = frontier.shift();
+
+      const deltas = [
+        [-1, 0],
+        [1, 0],
+        [0, -1],
+        [0, 1],
+        [-1, -1],
+        [-1, 1],
+        [1, -1],
+        [1, 1],
+      ];
+      for (let i = deltas.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deltas[i], deltas[j]] = [deltas[j], deltas[i]];
+      }
+
+      for (const [dx, dy] of deltas) {
+        if (clusterTiles.size >= size) break;
+        const nx = cx + dx;
+        const ny = cy + dy;
+        const key = `${nx},${ny}`;
+        if (
+          nx >= 0 &&
+          nx < cols &&
+          ny >= 0 &&
+          ny < rows &&
+          !clusterTiles.has(key) &&
+          !occupiedTiles.has(key)
+        ) {
+          clusterTiles.add(key);
+          frontier.push([nx, ny]);
+        }
+      }
+    }
+
+    return clusterTiles;
+  }
+
+  for (let i = 0; i < numberOfContinents; i++) {
+    const avgSize = Math.floor(continentTilesCount / numberOfContinents);
+    let attempts = 0;
+    let cluster = null;
+
+    while (attempts < 50) {
+      const startX = randInt(0, cols);
+      const startY = randInt(0, rows);
+
+      if (!occupiedTiles.has(`${startX},${startY}`)) {
+        cluster = createCluster(startX, startY, avgSize, occupiedTiles);
+        if (cluster.size === avgSize) break;
+      }
+      attempts++;
+    }
+
+    if (cluster) {
+      for (const coord of cluster) {
+        occupiedTiles.add(coord);
+        const [x, y] = coord.split(",").map(Number);
+        mainGridObject.setCellData(x, y, {
+          terrainType: "grassland",
+        });
+        landSet.add(coord);
+      }
+    }
+  }
+
+  for (let i = 0; i < numberOfIslands; i++) {
+    const avgSize = Math.floor(islandTilesCount / numberOfIslands);
+    let attempts = 0;
+    let cluster = null;
+
+    while (attempts < 50) {
+      const startX = randInt(0, cols);
+      const startY = randInt(0, rows);
+
+      if (!occupiedTiles.has(`${startX},${startY}`)) {
+        cluster = createCluster(startX, startY, avgSize, occupiedTiles);
+        if (cluster.size === avgSize) break;
+      }
+      attempts++;
+    }
+
+    if (cluster) {
+      for (const coord of cluster) {
+        occupiedTiles.add(coord);
+        const [x, y] = coord.split(",").map(Number);
+        mainGridObject.setCellData(x, y, {
+          terrainType: "grassland",
+        });
+        landSet.add(coord);
+      }
+    }
+  }
+
+  const oceanTiles = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const key = `${x},${y}`;
+      if (!landSet.has(key)) {
+        oceanTiles.push(key);
+      }
+    }
+  }
+
+  for (let i = 0; i < iceTilesCount; i++) {
+    if (oceanTiles.length === 0) break;
+    const idx = randInt(0, oceanTiles.length);
+    const key = oceanTiles.splice(idx, 1)[0];
+    const [x, y] = key.split(",").map(Number);
+    mainGridObject.setCellData(x, y, {
+      terrainType: "ice",
+    });
+  }
+
+  relocateMidRowIceTilesToPoles(temperature);
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const terrainType = mainGridObject.getCell(x, y).terrainType || "ocean";
+      ctx.fillStyle = getTerrainColor(terrainType);
+      ctx.fillRect(
+        x * mainGridObject.CELL_WIDTH,
+        y * mainGridObject.CELL_HEIGHT,
+        mainGridObject.CELL_WIDTH,
+        mainGridObject.CELL_HEIGHT
+      );
+    }
+  }
+}
+
+function getTerrainColor(type) {
+  switch (type) {
+    case "ice":
+      return "#FFFFFF";
+    case "grassland":
+      return "#7CFC00";
+    case "ocean":
+      return "#1E90FF";
+    default:
+      return "#000000";
+  }
+}
+
+function relocateMidRowIceTilesToPoles(temperature) {
+  const cols = mainGridObject.GRID_COLS;
+  const rows = mainGridObject.GRID_ROWS;
+  const polarRowCount = Math.max(0, 15 - Math.floor((30 - temperature) / 4));
+
+  const midRowIceTiles = [];
+  const polarOceanTiles = [];
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const cell = mainGridObject.getCell(x, y);
+      if (!cell) continue;
+
+      const terrain = cell.terrainType;
+
+      if (terrain === "ice") {
+        if (y >= polarRowCount && y < rows - polarRowCount) {
+          midRowIceTiles.push({
+            x,
+            y,
+          });
+        }
+      } else if (terrain === "ocean") {
+        if (y < polarRowCount || y >= rows - polarRowCount) {
+          polarOceanTiles.push({
+            x,
+            y,
+          });
+        }
+      }
+    }
+  }
+
+  function getWeight(y) {
+    if (y < polarRowCount) {
+      return polarRowCount - y;
+    } else if (y >= rows - polarRowCount) {
+      return y - (rows - polarRowCount - 1);
+    }
+    return 0;
+  }
+
+  function weightedShuffle(tiles) {
+    const weighted = tiles.flatMap((tile) => {
+      const weight = getWeight(tile.y);
+      return Array(weight).fill(tile);
+    });
+
+    const result = [];
+    const seen = new Set();
+    while (result.length < tiles.length && weighted.length > 0) {
+      const idx = Math.floor(Math.random() * weighted.length);
+      const selected = weighted.splice(idx, 1)[0];
+      const key = `${selected.x},${selected.y}`;
+      if (!seen.has(key)) {
+        result.push(selected);
+        seen.add(key);
+      }
+    }
+    return result;
+  }
+
+  const shuffledMidIce = [...midRowIceTiles];
+  for (let i = shuffledMidIce.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffledMidIce[i], shuffledMidIce[j]] = [
+      shuffledMidIce[j],
+      shuffledMidIce[i],
+    ];
+  }
+
+  const shuffledPolarOcean = weightedShuffle(polarOceanTiles);
+
+  const swaps = Math.min(shuffledMidIce.length, shuffledPolarOcean.length);
+  for (let i = 0; i < swaps; i++) {
+    const ice = shuffledMidIce[i];
+    const ocean = shuffledPolarOcean[i];
+
+    mainGridObject.setCellData(ice.x, ice.y, {
+      terrainType: "ocean",
+    });
+    mainGridObject.setCellData(ocean.x, ocean.y, {
+      terrainType: "ice",
+    });
+  }
+
+  for (let y = 0; y < rows; y++) {
+    if (y >= polarRowCount && y < rows - polarRowCount) continue;
+
+    const isInnermostTopRow = y === polarRowCount - 1;
+    const isSecondInnermostTopRow = y === polarRowCount - 2;
+    const isInnermostBottomRow = y === rows - polarRowCount;
+    const isSecondInnermostBottomRow = y === rows - polarRowCount + 1;
+
+    for (let x = 0; x < cols; x++) {
+      const cell = mainGridObject.getCell(x, y);
+      if (!cell) continue;
+
+      if (cell.terrainType !== "ice" && cell.terrainType !== "ocean") {
+        let chance = 1;
+        if (isInnermostTopRow || isInnermostBottomRow) {
+          chance = 0.5;
+        } else if (isSecondInnermostTopRow || isSecondInnermostBottomRow) {
+          chance = 0.8;
+        }
+
+        if (Math.random() > chance) {
+          continue;
+        }
+
+        mainGridObject.setCellData(x, y, {
+          terrainType: "ice",
+        });
+      }
+    }
   }
 }

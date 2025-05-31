@@ -27,6 +27,7 @@ import {
   setLanguage,
   getShowGrid,
   setShowGrid,
+  getLevelHeight,
 } from "./constantsAndGlobalVars.js";
 import { setGameState, startGame, gameLoop, getViewWindow } from "./game.js";
 import { initLocalization, localize } from "./localization.js";
@@ -90,7 +91,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     } else {
       tooltip.style.display = "none";
     }
-  });  
+  });
 
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -125,8 +126,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     setZoomLevel(newZoom);
     setCameraX(newCameraX);
 
-    const bg = getBackgroundImage();
-    const maxCameraY = bg.height - newView.viewHeight;
+    const maxCameraY = getLevelHeight() - newView.viewHeight;
     setCameraY(Math.min(Math.max(newCameraY, 0), maxCameraY));
   });
 
@@ -135,8 +135,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       setShowGrid(!getShowGrid());
       console.log("Grid debug view:", getShowGrid() ? "ON" : "OFF");
     }
-  });  
-  
+  });
+
   getElements().newGameMenuButton.addEventListener("click", () => {
     setBeginGameStatus(true);
     if (!getGameInProgress()) {
@@ -366,4 +366,3 @@ export function drawDebugGrid(ctx) {
 
   ctx.restore();
 }
-  

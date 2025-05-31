@@ -1,4 +1,4 @@
-import { getViewWindow } from './game.js';
+import { getViewWindow } from "./game.js";
 
 //DEBUG
 export let debugFlag = false;
@@ -30,6 +30,7 @@ export const INITIAL_SPEED_MOVING_ENEMY = 4;
 export const MAX_ATTEMPTS_TO_DRAW_ENEMIES = 1000;
 export const LEVEL_WIDTH = 2560;
 export const LEVEL_HEIGHT = 720;
+export const TERRAIN_TYPES = ["ice", "grassland", "ocean"];
 
 export const mainGridObject = (function () {
   const CELL_WIDTH = 10;
@@ -148,7 +149,6 @@ export const mainGridObject = (function () {
     },
   };
 })();
-
 
 //GLOBAL VARIABLES
 let cameraX = 0;
@@ -456,3 +456,6 @@ export function setShowGrid(value) {
   showGrid = value;
 }
 
+export function getTerrainTypes() {
+  return TERRAIN_TYPES;
+}
