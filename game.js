@@ -1098,7 +1098,11 @@ function generateRivers(riverBias) {
         const ny = y + dy;
         if (mainGridObject.isValid(nx, ny)) {
           const neighbor = mainGridObject.getCell(nx, ny);
-          if (neighbor && neighbor.terrainType === "mountain" || neighbor.terrainType === "hill") {
+          if (
+            neighbor &&
+            (neighbor.terrainType === "mountain" ||
+              neighbor.terrainType === "hill")
+          ) {
             return true;
           }
         }
@@ -1125,30 +1129,31 @@ function generateRivers(riverBias) {
   };
 
   const getNextRiverStep = (x, y, direction) => {
-    const deltas = {
+    const forwardLeftRight = {
       north: [
-        { dx: 0, dy: -1 },
-        { dx: -1, dy: -1 },
-        { dx: 1, dy: -1 },
+        { dx: 0, dy: -1 }, // forward
+        { dx: -1, dy: 0 }, // left
+        { dx: 1, dy: 0 }, // right
       ],
       south: [
         { dx: 0, dy: 1 },
-        { dx: -1, dy: 1 },
-        { dx: 1, dy: 1 },
+        { dx: 1, dy: 0 },
+        { dx: -1, dy: 0 },
       ],
       east: [
         { dx: 1, dy: 0 },
-        { dx: 1, dy: -1 },
-        { dx: 1, dy: 1 },
+        { dx: 0, dy: 1 },
+        { dx: 0, dy: -1 },
       ],
       west: [
         { dx: -1, dy: 0 },
-        { dx: -1, dy: -1 },
-        { dx: -1, dy: 1 },
+        { dx: 0, dy: -1 },
+        { dx: 0, dy: 1 },
       ],
     };
 
-    const options = deltas[direction];
+    const options = forwardLeftRight[direction];
+
     const validSteps = options.filter(({ dx, dy }) => {
       const nx = x + dx;
       const ny = y + dy;
@@ -1159,6 +1164,17 @@ function generateRivers(riverBias) {
 
     if (validSteps.length === 0) return null;
 
+    const weights = [0.75, 0.125, 0.125];
+    const r = Math.random();
+    let acc = 0;
+    for (let i = 0; i < options.length; i++) {
+      acc += weights[i];
+      if (r <= acc && validSteps.includes(options[i])) {
+        return { x: x + options[i].dx, y: y + options[i].dy };
+      }
+    }
+
+    // fallback
     const choice = validSteps[Math.floor(Math.random() * validSteps.length)];
     return { x: x + choice.dx, y: y + choice.dy };
   };
@@ -1209,16 +1225,36 @@ function generateRivers(riverBias) {
       path.push({ x, y });
 
       if (isNextToOcean(x, y)) {
-        const riverType =
-          dir === "north" || dir === "south" ? "river1" : "river2";
+        // Set tiles with local direction-based river type
+        for (let i = 1; i < path.length; i++) {
+          const prev = path[i - 1];
+          const curr = path[i];
 
-        for (const { x: rx, y: ry } of path) {
-          mainGridObject.setCellData(rx, ry, {
+          const dx = curr.x - prev.x;
+          const dy = curr.y - prev.y;
+
+          const riverType = Math.abs(dy) > Math.abs(dx) ? "river1" : "river2";
+
+          mainGridObject.setCellData(curr.x, curr.y, {
             terrainType: riverType,
             type: "walkable",
             walkable: true,
           });
         }
+
+        // Handle first tile
+        const first = path[0];
+        const second = path[1] || first;
+        const dx = second.x - first.x;
+        const dy = second.y - first.y;
+        const riverType = Math.abs(dy) > Math.abs(dx) ? "river1" : "river2";
+
+        mainGridObject.setCellData(first.x, first.y, {
+          terrainType: riverType,
+          type: "walkable",
+          walkable: true,
+        });
+
         placedCount++;
         break;
       }
@@ -1234,6 +1270,7 @@ function generateRivers(riverBias) {
     attempts++;
   }
 }
+
 
 function generateDeserts(desertBias) {
   const cols = mainGridObject.GRID_COLS;

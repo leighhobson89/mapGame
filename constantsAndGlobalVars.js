@@ -32,7 +32,7 @@ export const LEVEL_WIDTH = 2560;
 export const LEVEL_HEIGHT = 720;
 export const TERRAIN_TYPES = ["ice", "grassland", "ocean"];
 export const MAX_ZOOM_LEVEL = 9;
-export const TILE_SIZE = 64;
+export const TILE_SIZE = 16;
 
 const terrainTileMap = {
   ice: [0, 0],
