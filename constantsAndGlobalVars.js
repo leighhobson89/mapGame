@@ -212,10 +212,6 @@ export function setElements() {
   };
 }
 
-export function getPlayerObject() {
-  return playerObject;
-}
-
 export function setGameStateVariable(value) {
   gameState = value;
 }

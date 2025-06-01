@@ -2,18 +2,13 @@ import { localize } from "./localization.js";
 import { drawDebugGrid } from "./ui.js";
 
 import {
-  getTerrainTypes,
   getShowGrid,
-  setShowGrid,
   mainGridObject,
   getScrollUpFlag,
   getScrollDownFlag,
   setZoomLevel,
   getLevelWidth,
   getLevelHeight,
-  getBackgroundLoaded,
-  getBackgroundImage,
-  loadBackgroundImage,
   SCROLL_SPEED,
   LEVEL_WIDTH,
   getCameraX,
@@ -26,7 +21,6 @@ import {
   getCanvasHeight,
   getCanvasWidth,
   setGameStateVariable,
-  getPlayerObject,
   getMenuState,
   getGameVisiblePaused,
   getGameVisibleActive,
@@ -61,10 +55,17 @@ export async function startGame() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   generateWorldMap(ctx, {
-    landArea: 15,
+    landArea: 40,
     numberOfContinents: 3,
-    numberOfIslands: 15,
-    temperature: 15,
+    numberOfIslands: 40,
+    temperature: 10,
+    peninsulaBias: 3,
+    eastWestBias: 6,
+    distanceBias: 4,
+    mountainBias: 0.9,
+    hillBias: 0.5,
+    riverBias: 0.5,
+    desertBias: 0.6
   });
 
   gameLoop();
@@ -348,23 +349,24 @@ export function setGameState(newState) {
   }
 }
 
-function isFarEnough(x, y, occupiedTiles, minDistance) {
-  for (let dx = -minDistance; dx <= minDistance; dx++) {
-    for (let dy = -minDistance; dy <= minDistance; dy++) {
-      if (dx === 0 && dy === 0) continue;
-      const nx = x + dx;
-      const ny = y + dy;
-      if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
-      if (occupiedTiles.has(`${nx},${ny}`)) return false;
-    }
-  }
-  return true;
-}
-
 function generateWorldMap(
   ctx,
-  { landArea, numberOfContinents, numberOfIslands, temperature } = {}
+  {
+    landArea,
+    numberOfContinents,
+    numberOfIslands,
+    temperature,
+    peninsulaBias,
+    eastWestBias,
+    distanceBias,
+    mountainBias,
+    hillBias,
+    riverBias,
+    desertBias
+  } = {}
 ) {
+  const borderLimit = 2;
+  const borderLimitModifier = 10;
   const cols = mainGridObject.GRID_COLS;
   const rows = mainGridObject.GRID_ROWS;
   const totalTiles = cols * rows;
@@ -373,7 +375,7 @@ function generateWorldMap(
   const waterTilesCount = totalTiles - landTilesCount;
   const iceTilesCount = Math.floor((temperature / 100) * waterTilesCount);
 
-  const continentTilesCount = Math.floor(landTilesCount * 0.8);
+  const continentTilesCount = Math.floor(landTilesCount * 0.5);
   const islandTilesCount = landTilesCount - continentTilesCount;
 
   const landSet = new Set();
@@ -422,8 +424,8 @@ function generateWorldMap(
         ny = startY + dy;
       const k = keyOf(nx, ny);
       if (
-        nx >= 0 &&
-        nx < cols &&
+        nx >= borderLimit &&
+        nx < cols - borderLimit &&
         ny >= 0 &&
         ny < rows &&
         !occupiedTiles.has(k) &&
@@ -432,10 +434,6 @@ function generateWorldMap(
         frontier.add(k);
       }
     }
-
-    const eastWestBias = 3;
-    const peninsulaBias = 2;
-    const distanceBias = 2;
 
     function distance(x, y) {
       return Math.sqrt((x - startX) ** 2 + (y - startY) ** 2);
@@ -491,8 +489,8 @@ function generateWorldMap(
           ny = cy + dy;
         const k2 = keyOf(nx, ny);
         if (
-          nx >= 0 &&
-          nx < cols &&
+          nx >= borderLimit &&
+          nx < cols - borderLimit &&
           ny >= 0 &&
           ny < rows &&
           !occupiedTiles.has(k2) &&
@@ -531,8 +529,6 @@ function generateWorldMap(
     return clusterTiles;
   }
 
-  const continentMinX = 10;
-  const continentMaxX = 240;
   const continentMinY = 4;
   const continentMaxY = rows - 4;
 
@@ -541,11 +537,19 @@ function generateWorldMap(
     let attempts = 0;
     let cluster = null;
 
+    const minContinentDistance = 40;
+
     while (attempts < 50) {
-      const startX = randInt(continentMinX, continentMaxX);
+      const startX = randInt(
+        borderLimit * borderLimitModifier,
+        cols - borderLimit * borderLimitModifier
+      );
       const startY = randInt(continentMinY, continentMaxY);
 
-      if (!occupiedTiles.has(`${startX},${startY}`)) {
+      if (
+        !occupiedTiles.has(`${startX},${startY}`) &&
+        isFarEnoughFromExistingContinents(startX, startY, minContinentDistance)
+      ) {
         cluster = createOrganicCluster(startX, startY, avgSize, occupiedTiles);
         if (cluster.size === avgSize) break;
       }
@@ -564,14 +568,16 @@ function generateWorldMap(
     }
   }
 
-
   for (let i = 0; i < numberOfIslands; i++) {
     const avgSize = Math.floor(islandTilesCount / numberOfIslands);
     let attempts = 0;
     let cluster = null;
 
     while (attempts < 50) {
-      const startX = randInt(0, cols);
+      const startX = randInt(
+        borderLimit * borderLimitModifier,
+        cols - borderLimit * borderLimitModifier
+      );
       const startY = randInt(0, rows);
 
       if (!occupiedTiles.has(`${startX},${startY}`)) {
@@ -615,6 +621,7 @@ function generateWorldMap(
 
   relocateMidRowIceTilesToPoles(temperature);
   generateTundra(temperature);
+  generateMountainRanges(mountainBias);
 
   const neighborDeltas = [
     [1, 0],
@@ -646,6 +653,15 @@ function generateWorldMap(
     return modal;
   }
 
+  function isFarEnoughFromExistingContinents(startX, startY, minDistance) {
+    for (const coord of occupiedTiles) {
+      const [x, y] = coord.split(",").map(Number);
+      const dist = Math.sqrt((x - startX) ** 2 + (y - startY) ** 2);
+      if (dist < minDistance) return false;
+    }
+    return true;
+  }
+
   const toChange = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
@@ -673,6 +689,10 @@ function generateWorldMap(
   for (const { x, y, terrain } of toChange) {
     mainGridObject.setCellData(x, y, { terrainType: terrain });
   }
+
+  generateHills(hillBias);
+  generateRivers(riverBias);
+  generateDeserts(desertBias);
 }
 
 function getTerrainColor(type) {
@@ -682,9 +702,17 @@ function getTerrainColor(type) {
     case "grassland":
       return "#7CFC00";
     case "ocean":
-      return "#1E90FF";
+      return "#00008B";
     case "tundra":
       return "#8B7D6B";
+    case "mountain":
+      return "#696969";
+    case "hill":
+      return "#A9A9A9";
+    case "river":
+      return "#1E90FF";
+    case "desert":
+      return "#FFD700";
     default:
       return "#000000";
   }
@@ -876,3 +904,418 @@ function generateTundra(temperature) {
   }
 }
 
+function generateMountainRanges(mountainBias) {
+  const cols = mainGridObject.GRID_COLS;
+  const rows = mainGridObject.GRID_ROWS;
+
+  const isMountainCandidate = (cell) =>
+    cell && (cell.terrainType === "grassland" || cell.terrainType === "tundra");
+
+  const isNearOcean = (x, y) => {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (mainGridObject.isValid(nx, ny)) {
+          const neighbor = mainGridObject.getCell(nx, ny);
+          if (neighbor && neighbor.terrainType === "ocean") {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  const mountainCandidates = [];
+
+  for (let y = 0; y < rows; y++) {
+    let sequence = [];
+    for (let x = 0; x < cols; x++) {
+      const cell = mainGridObject.getCell(x, y);
+      if (isMountainCandidate(cell)) {
+        sequence.push({ x, y });
+      } else {
+        if (sequence.length >= 8 && Math.random() < mountainBias) {
+          mountainCandidates.push({
+            start: sequence[0],
+            direction: "horizontal",
+            length: sequence.length,
+          });
+        }
+        sequence = [];
+      }
+    }
+    if (sequence.length >= 8 && Math.random() < mountainBias) {
+      mountainCandidates.push({
+        start: sequence[0],
+        direction: "horizontal",
+        length: sequence.length,
+      });
+    }
+  }
+
+  for (let x = 0; x < cols; x++) {
+    let sequence = [];
+    for (let y = 0; y < rows; y++) {
+      const cell = mainGridObject.getCell(x, y);
+      if (isMountainCandidate(cell)) {
+        sequence.push({ x, y });
+      } else {
+        if (sequence.length >= 8 && Math.random() < mountainBias) {
+          mountainCandidates.push({
+            start: sequence[0],
+            direction: "vertical",
+            length: sequence.length,
+          });
+        }
+        sequence = [];
+      }
+    }
+    if (sequence.length >= 8 && Math.random() < mountainBias) {
+      mountainCandidates.push({
+        start: sequence[0],
+        direction: "vertical",
+        length: sequence.length,
+      });
+    }
+  }
+
+  for (const { start, direction } of mountainCandidates) {
+    const rangeLength = Math.floor(Math.random() * 15) + 6;
+    let width = Math.floor(Math.random() * 5) + 1;
+
+    let { x, y } = start;
+
+    for (let i = 0; i < rangeLength; i++) {
+      if (direction === "horizontal") {
+        x += 1;
+        y += Math.floor(Math.random() * 3) - 1;
+      } else {
+        y += 1;
+        x += Math.floor(Math.random() * 3) - 1;
+      }
+
+      x = Math.max(0, Math.min(cols - 1, x));
+      y = Math.max(0, Math.min(rows - 1, y));
+
+      const actualWidth = Math.max(
+        1,
+        Math.min(3, width + (Math.random() > 0.5 ? 1 : 0))
+      );
+
+      for (let wx = 0; wx < actualWidth; wx++) {
+        for (let wy = 0; wy < actualWidth; wy++) {
+          const tx = direction === "horizontal" ? x : x + wx;
+          const ty = direction === "horizontal" ? y + wy : y;
+
+          if (
+            mainGridObject.isValid(tx, ty) &&
+            isMountainCandidate(mainGridObject.getCell(tx, ty)) &&
+            !isNearOcean(tx, ty)
+          ) {
+            if (width === 3 && actualWidth >= 3 && Math.random() < 0.6) {
+              mainGridObject.setCellData(tx, ty, {
+                terrainType: "ice",
+                type: "impassable",
+                walkable: false,
+              });
+            } else {
+              mainGridObject.setCellData(tx, ty, {
+                terrainType: "mountain",
+                type: "impassable",
+                walkable: false,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function generateHills(hillBias) {
+  const cols = mainGridObject.GRID_COLS;
+  const rows = mainGridObject.GRID_ROWS;
+
+  const isForbidden = (cell) =>
+    !cell || ["ice", "ocean", "mountain"].includes(cell.terrainType);
+
+  const isHillCandidate = (cell) => cell && !isForbidden(cell);
+
+  const getNeighbors = (x, y) => {
+    const neighbors = [];
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (mainGridObject.isValid(nx, ny)) {
+          neighbors.push(mainGridObject.getCell(nx, ny));
+        }
+      }
+    }
+    return neighbors;
+  };
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const cell = mainGridObject.getCell(x, y);
+
+      if (!isHillCandidate(cell)) continue;
+
+      const neighbors = getNeighbors(x, y);
+
+      const hasMountainNeighbor = neighbors.some(
+        (n) => n && n.terrainType === "mountain"
+      );
+
+      const allNeighborsGood =
+        neighbors.length === 8 && neighbors.every((n) => !isForbidden(n));
+
+      let chance = 0;
+      if (hasMountainNeighbor) chance = 0.6 * hillBias;
+      else if (allNeighborsGood) chance = 0.3 * hillBias;
+
+      if (Math.random() < chance) {
+        mainGridObject.setCellData(x, y, {
+          terrainType: "hill",
+          type: "walkable",
+          walkable: true,
+        });
+      }
+    }
+  }
+}
+
+function generateRivers(riverBias) {
+  const cols = mainGridObject.GRID_COLS;
+  const rows = mainGridObject.GRID_ROWS;
+
+  const isValidRiverTile = (cell) =>
+    cell && (cell.terrainType === "grassland" || cell.terrainType === "hill");
+
+  const isNextToMountain = (x, y) => {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (mainGridObject.isValid(nx, ny)) {
+          const neighbor = mainGridObject.getCell(nx, ny);
+          if (neighbor && neighbor.terrainType === "mountain" || neighbor.terrainType === "hill") {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  const isNextToOcean = (x, y) => {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (mainGridObject.isValid(nx, ny)) {
+          const neighbor = mainGridObject.getCell(nx, ny);
+          if (neighbor && neighbor.terrainType === "ocean") {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  const getNextRiverStep = (x, y, direction) => {
+    const deltas = {
+      north: [
+        { dx: 0, dy: -1 },
+        { dx: -1, dy: -1 },
+        { dx: 1, dy: -1 },
+      ],
+      south: [
+        { dx: 0, dy: 1 },
+        { dx: -1, dy: 1 },
+        { dx: 1, dy: 1 },
+      ],
+      east: [
+        { dx: 1, dy: 0 },
+        { dx: 1, dy: -1 },
+        { dx: 1, dy: 1 },
+      ],
+      west: [
+        { dx: -1, dy: 0 },
+        { dx: -1, dy: -1 },
+        { dx: -1, dy: 1 },
+      ],
+    };
+
+    const options = deltas[direction];
+    const validSteps = options.filter(({ dx, dy }) => {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!mainGridObject.isValid(nx, ny)) return false;
+      const cell = mainGridObject.getCell(nx, ny);
+      return isValidRiverTile(cell);
+    });
+
+    if (validSteps.length === 0) return null;
+
+    const choice = validSteps[Math.floor(Math.random() * validSteps.length)];
+    return { x: x + choice.dx, y: y + choice.dy };
+  };
+
+  const directions = ["north", "south", "east", "west"];
+  const candidates = [];
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const cell = mainGridObject.getCell(x, y);
+      if (isValidRiverTile(cell) && isNextToMountain(x, y)) {
+        candidates.push({ x, y });
+      }
+    }
+  }
+
+  const shuffleArray = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
+
+  shuffleArray(candidates);
+
+  const targetCount = Math.floor(50 * riverBias);
+  let placedCount = 0;
+  let attempts = 0;
+
+  while (
+    placedCount < targetCount &&
+    attempts < 10000 &&
+    candidates.length > 0
+  ) {
+    const { x: startX, y: startY } = candidates.pop();
+    const dir = directions[Math.floor(Math.random() * directions.length)];
+
+    let x = startX;
+    let y = startY;
+    const path = [];
+
+    let steps = 0;
+    while (steps < 100) {
+      const cell = mainGridObject.getCell(x, y);
+      if (!isValidRiverTile(cell)) break;
+
+      path.push({ x, y });
+
+      if (isNextToOcean(x, y)) {
+        for (const { x: rx, y: ry } of path) {
+          mainGridObject.setCellData(rx, ry, {
+            terrainType: "river",
+            type: "walkable",
+            walkable: true,
+          });
+        }
+        placedCount++;
+        break;
+      }
+
+      const nextStep = getNextRiverStep(x, y, dir);
+      if (!nextStep) break;
+
+      x = nextStep.x;
+      y = nextStep.y;
+      steps++;
+    }
+
+    attempts++;
+  }
+}
+
+function generateDeserts(desertBias) {
+  const cols = mainGridObject.GRID_COLS;
+  const rows = mainGridObject.GRID_ROWS;
+  const middleRow = Math.floor(rows / 2);
+
+  const isDesertCandidate = (cell) =>
+    cell &&
+    !["ice", "mountain", "ocean", "river", "desert"].includes(cell.terrainType);
+
+  const isFarFromWater = (x, y) => {
+    let desertMinDistanceFromWater = 4;
+
+    if (Math.abs(y - middleRow) <= 5) {
+      desertMinDistanceFromWater = Math.floor(desertMinDistanceFromWater / 2);
+    }
+
+    for (
+      let dy = -desertMinDistanceFromWater;
+      dy <= desertMinDistanceFromWater;
+      dy++
+    ) {
+      for (
+        let dx = -desertMinDistanceFromWater;
+        dx <= desertMinDistanceFromWater;
+        dx++
+      ) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (mainGridObject.isValid(nx, ny)) {
+          const neighbor = mainGridObject.getCell(nx, ny);
+          if (
+            neighbor &&
+            (neighbor.terrainType === "ocean" ||
+              neighbor.terrainType === "river")
+          ) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  };
+
+  const tryMakeDesert = (x, y, bias = 1) => {
+    if (
+      mainGridObject.isValid(x, y) &&
+      isDesertCandidate(mainGridObject.getCell(x, y)) &&
+      Math.random() < 0.5 * bias
+    ) {
+      mainGridObject.setCellData(x, y, {
+        terrainType: "desert",
+        type: "walkable",
+        walkable: true,
+      });
+      return true;
+    }
+    return false;
+  };
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const cell = mainGridObject.getCell(x, y);
+
+      if (
+        isDesertCandidate(cell) &&
+        isFarFromWater(x, y) &&
+        Math.random() < desertBias
+      ) {
+        const success = tryMakeDesert(x, y, 1);
+        if (success) {
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              tryMakeDesert(x + dx, y + dy, desertBias);
+            }
+          }
+        }
+      }
+    }
+  }
+}
