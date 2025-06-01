@@ -1,4 +1,5 @@
 import {
+  getMaxZoomLevel,
   setHoveredCell,
   mainGridObject,
   getBackgroundImage,
@@ -101,14 +102,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     const mouseY_css = e.clientY - rect.top;
 
     const canvasHeight = canvas.height;
-    const scale = canvasHeight / getViewWindow(getZoomLevel()).viewHeight;
-
     const mouseX = mouseX_css;
     const mouseY = mouseY_css;
 
     const oldZoom = getZoomLevel();
     const zoomDelta = e.deltaY < 0 ? 1 : -1;
-    const newZoom = Math.min(Math.max(0, oldZoom + zoomDelta), 9);
+    const newZoom = Math.min(Math.max(0, oldZoom + zoomDelta), getMaxZoomLevel());
     if (newZoom === oldZoom) return;
 
     const oldView = getViewWindow(oldZoom);

@@ -31,6 +31,7 @@ export const MAX_ATTEMPTS_TO_DRAW_ENEMIES = 1000;
 export const LEVEL_WIDTH = 2560;
 export const LEVEL_HEIGHT = 720;
 export const TERRAIN_TYPES = ["ice", "grassland", "ocean"];
+export const MAX_ZOOM_LEVEL = 9;
 
 export const mainGridObject = (function () {
   const CELL_WIDTH = 10;
@@ -454,4 +455,8 @@ export function setShowGrid(value) {
 
 export function getTerrainTypes() {
   return TERRAIN_TYPES;
+}
+
+export function getMaxZoomLevel() {
+  return MAX_ZOOM_LEVEL;
 }
