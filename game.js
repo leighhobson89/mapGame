@@ -2,6 +2,8 @@ import { localize } from "./localization.js";
 import { drawDebugGrid } from "./ui.js";
 
 import {
+  getTile,
+  getTileCoords,
   getMaxZoomLevel,
   getShowGrid,
   mainGridObject,
@@ -29,6 +31,7 @@ import {
   getLanguage,
   getGameInProgress,
   getHoveredCell,
+  getTileSize,
 } from "./constantsAndGlobalVars.js";
 
 //--------------------------------------------------------------------------------------------------------
@@ -66,7 +69,7 @@ export async function startGame() {
     mountainBias: 0.9,
     hillBias: 0.5,
     riverBias: 0.85,
-    desertBias: 0.5,
+    desertBias: 0.2,
     plainsBias: 0.9,
     vegetationBias: 0.7,
     floodPlainBias: 0.5
@@ -211,8 +214,6 @@ export function drawBackground(ctx) {
       const cell = mainGridObject.getCell(col, row);
       if (!cell) continue;
 
-      const color = getTerrainColor(cell.terrainType);
-
       const cellWorldX = col * mainGridObject.CELL_WIDTH;
       const cellWorldY = row * mainGridObject.CELL_HEIGHT;
 
@@ -231,8 +232,11 @@ export function drawBackground(ctx) {
       const drawW = Math.ceil(cellWidthPx);
       const drawH = Math.ceil(cellHeightPx);
 
-      ctx.fillStyle = color;
-      ctx.fillRect(drawX, drawY, drawW, drawH);
+      const terrainType = cell.terrainType;
+      const [tileRow, tileCol] = getTileCoords(terrainType);
+
+      const tileCanvas = getTile(tileRow, tileCol);
+      drawTile(ctx, tileCanvas, drawX, drawY, drawW, drawH);
     }
   }
 
@@ -259,6 +263,10 @@ export function drawBackground(ctx) {
 
     ctx.fillRect(drawX, drawY, drawW, drawH);
   }
+}
+
+export function drawTile(ctx, tileCanvas, dx, dy, dWidth, dHeight) {
+  ctx.drawImage(tileCanvas, dx, dy, dWidth, dHeight);
 }
 
 export function setGameState(newState) {
@@ -703,37 +711,6 @@ function generateWorldMap(
   generatePlains(plainsBias);
   generateVegetation(vegetationBias);
   generateFloodPlains(floodPlainBias);
-}
-
-function getTerrainColor(type) {
-  switch (type) {
-    case "ice":
-      return "#FFFFFF";
-    case "grassland":
-      return "#7CFC00";
-    case "floodPlain":
-      return "#DFFF55";
-    case "jungle":
-      return "#228B22";
-    case "forest":
-      return "#004d00";
-    case "ocean":
-      return "#00008B";
-    case "tundra":
-      return "#8B7D6B";
-    case "mountain":
-      return "#696969";
-    case "hill":
-      return "#A9A9A9";
-    case "river":
-      return "#1E90FF";
-    case "desert":
-      return "#FFD700";
-    case "plains":
-      return "#FFA500";
-    default:
-      return "#000000";
-  }
 }
 
 function relocateMidRowIceTilesToPoles(temperature) {
@@ -1232,9 +1209,12 @@ function generateRivers(riverBias) {
       path.push({ x, y });
 
       if (isNextToOcean(x, y)) {
+        const riverType =
+          dir === "north" || dir === "south" ? "river1" : "river2";
+
         for (const { x: rx, y: ry } of path) {
           mainGridObject.setCellData(rx, ry, {
-            terrainType: "river",
+            terrainType: riverType,
             type: "walkable",
             walkable: true,
           });
@@ -1445,7 +1425,8 @@ function generateVegetation(vegetationBias) {
     !forbiddenTypes.includes(cell.terrainType) &&
     cell.terrainType === "grassland";
 
-  const isRiver = (cell) => cell && cell.terrainType === "river";
+  const isRiver = (cell) =>
+    cell && (cell.terrainType === "river1" || cell.terrainType === "river2");
   const isDesert = (cell) => cell && cell.terrainType === "desert";
   const isJungleOrForest = (cell) =>
     cell && (cell.terrainType === "jungle" || cell.terrainType === "forest");
@@ -1525,7 +1506,8 @@ function generateFloodPlains(floodPlainBias) {
   const rows = mainGridObject.GRID_ROWS;
 
   const isGrassland = (cell) => cell && cell.terrainType === "grassland";
-  const isRiver = (cell) => cell && cell.terrainType === "river";
+  const isRiver1 = (cell) => cell && cell.terrainType === "river1";
+  const isRiver2 = (cell) => cell && cell.terrainType === "river2";
   const isOcean = (cell) => cell && cell.terrainType === "ocean";
 
   const getNeighbors = (x, y) => {
@@ -1549,13 +1531,21 @@ function generateFloodPlains(floodPlainBias) {
       if (!isGrassland(cell)) continue;
 
       const neighbors = getNeighbors(x, y);
-      const hasRiverNeighbor = neighbors.some(isRiver);
+
+      const hasRiver1Neighbor = neighbors.some(isRiver1);
+      const hasRiver2Neighbor = neighbors.some(isRiver2);
       const hasOceanNeighbor = neighbors.some(isOcean);
 
-      if (hasRiverNeighbor && hasOceanNeighbor) {
-        if (Math.random() < floodPlainBias) {
+      if (hasOceanNeighbor) {
+        if (hasRiver1Neighbor && Math.random() < floodPlainBias) {
           mainGridObject.setCellData(x, y, {
-            terrainType: "floodPlain",
+            terrainType: "floodPlain1",
+            type: "walkable",
+            walkable: true,
+          });
+        } else if (hasRiver2Neighbor && Math.random() < floodPlainBias) {
+          mainGridObject.setCellData(x, y, {
+            terrainType: "floodPlain2",
             type: "walkable",
             walkable: true,
           });

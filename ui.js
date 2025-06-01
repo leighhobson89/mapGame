@@ -1,4 +1,5 @@
 import {
+  loadSpriteSheet,
   getMaxZoomLevel,
   setHoveredCell,
   mainGridObject,
@@ -41,6 +42,7 @@ import {
 
 document.addEventListener("DOMContentLoaded", async () => {
   setElements();
+  await loadSpriteSheet("./assets/world/spritesheet.png");
 
   const canvas = getElements().canvas;
 
@@ -365,3 +367,4 @@ export function drawDebugGrid(ctx) {
 
   ctx.restore();
 }
+

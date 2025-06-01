@@ -32,6 +32,81 @@ export const LEVEL_WIDTH = 2560;
 export const LEVEL_HEIGHT = 720;
 export const TERRAIN_TYPES = ["ice", "grassland", "ocean"];
 export const MAX_ZOOM_LEVEL = 9;
+export const TILE_SIZE = 64;
+
+const terrainTileMap = {
+  ice: [0, 0],
+  tundra: [0, 1],
+  grassland: [0, 2],
+  plains: [0, 3],
+  desert: [0, 4],
+  ocean: [0, 5],
+  forest: [0, 6],
+  jungle: [0, 7],
+  mountain: [0, 8],
+  hill: [0, 9],
+  river1: [0, 10],
+  river2: [0, 11],
+  floodPlain1: [0, 10],
+  floodPlain2: [0, 11],
+};
+
+let spriteSheetImage = null;
+
+export async function loadSpriteSheet(src) {
+  spriteSheetImage = await loadImage(src);
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = src;
+
+    img.onload = () => {
+      console.log(`✅ Image loaded successfully: ${src}`);
+      resolve(img);
+    };
+
+    img.onerror = (err) => {
+      console.error(`❌ Failed to load image: ${src}`, err);
+      reject(err);
+    };
+  });
+}
+
+const tileCache = new Map();
+
+export function getTile(row, col) {
+  if (!spriteSheetImage) {
+    throw new Error("Sprite sheet not loaded. Call loadSpriteSheet() first.");
+  }
+
+  const key = `${row},${col}`;
+  if (tileCache.has(key)) {
+    return tileCache.get(key);
+  }
+
+  const TILE_SIZE = getTileSize();
+  const canvas = document.createElement("canvas");
+  canvas.width = TILE_SIZE;
+  canvas.height = TILE_SIZE;
+  const ctx = canvas.getContext("2d");
+
+  ctx.drawImage(
+    spriteSheetImage,
+    col * TILE_SIZE,
+    row * TILE_SIZE,
+    TILE_SIZE,
+    TILE_SIZE,
+    0,
+    0,
+    TILE_SIZE,
+    TILE_SIZE
+  );
+
+  tileCache.set(key, canvas);
+  return canvas;
+}
 
 export const mainGridObject = (function () {
   const CELL_WIDTH = 10;
@@ -459,4 +534,16 @@ export function getTerrainTypes() {
 
 export function getMaxZoomLevel() {
   return MAX_ZOOM_LEVEL;
+}
+
+export function getTileSize() {
+  return TILE_SIZE;
+}
+
+export function getSpriteSheetImage() {
+  return spriteSheetImage;
+}
+
+export function getTileCoords(terrainType) {
+  return terrainTileMap[terrainType] || [0, 0];
 }
